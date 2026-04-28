@@ -1,0 +1,181 @@
+name: Release Operator Image
+
+on:
+  push:
+    tags:
+      - 'operator-v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version without prefix (example: 0.2.0)'
+        required: true
+        type: string
+      image_repository:
+        description: 'Image repository path (owner/name)'
+        required: false
+        default: ''
+        type: string
+      push_artifacts:
+        description: 'Push/sign image'
+        required: false
+        default: true
+        type: boolean
+      force_release:
+        description: 'Bypass path guard and release anyway'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  actions: read
+  contents: read
+  packages: write
+  id-token: write
+  attestations: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Detect operator component changes
+        id: changes
+        env:
+          FORCE_RELEASE: ${{ inputs.force_release }}
+        run: |
+          set -euo pipefail
+          if [[ "${FORCE_RELEASE:-false}" == "true" ]]; then
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          CHANGED_FILES="$(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" || true)"
+          if [[ -z "${CHANGED_FILES}" ]]; then
+            CHANGED_FILES="$(git show --name-only --pretty='' "$GITHUB_SHA" || true)"
+          fi
+
+          echo "Changed files:"
+          echo "${CHANGED_FILES}"
+
+          SHOULD_RELEASE=false
+          while IFS= read -r file; do
+            [[ -z "$file" ]] && continue
+            case "$file" in
+              Dockerfile|cmd/*|api/*|internal/*|go.mod|go.sum|PROJECT|Makefile|config/manager/*|config/rbac/*|config/webhook/*|config/default/*|config/crd/*|config/certmanager/*)
+                SHOULD_RELEASE=true
+                break
+                ;;
+            esac
+          done <<< "${CHANGED_FILES}"
+
+          echo "should_release=${SHOULD_RELEASE}" >> "$GITHUB_OUTPUT"
+
+      - name: Release guard status
+        if: steps.changes.outputs.should_release != 'true'
+        run: echo "Skipping operator release; no operator component paths changed. Use force_release=true to override."
+
+      - name: Set up QEMU
+        if: steps.changes.outputs.should_release == 'true'
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+
+      - name: Set up Docker Buildx
+        if: steps.changes.outputs.should_release == 'true'
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Resolve release metadata
+        if: steps.changes.outputs.should_release == 'true'
+        id: meta
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_REPOSITORY: ${{ inputs.image_repository }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME#operator-v}"
+          else
+            VERSION="${INPUT_VERSION}"
+          fi
+
+          if [[ -z "${VERSION}" ]]; then
+            echo "version is required"
+            exit 1
+          fi
+
+          REGISTRY="ghcr.io"
+          REPOSITORY="${INPUT_REPOSITORY:-${GITHUB_REPOSITORY_OWNER}/certificate-job-operator}"
+          IMAGE="${REGISTRY}/${REPOSITORY}:v${VERSION}"
+
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
+
+      - name: Login to GHCR
+        if: steps.changes.outputs.should_release == 'true' && (github.event_name == 'push' || inputs.push_artifacts)
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push operator image
+        if: steps.changes.outputs.should_release == 'true'
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: ${{ github.event_name == 'push' || inputs.push_artifacts }}
+          load: ${{ !(github.event_name == 'push' || inputs.push_artifacts) }}
+          sbom: true
+          tags: ${{ steps.meta.outputs.image }}
+          platforms: ${{ (github.event_name == 'push' || inputs.push_artifacts) && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
+
+      - name: Generate source SBOM artifact
+        if: steps.changes.outputs.should_release == 'true'
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          path: .
+          format: spdx-json
+          artifact-name: operator-source-sbom.spdx.json
+
+      - name: Scan source with Trivy
+        if: steps.changes.outputs.should_release == 'true'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: table
+          exit-code: '1'
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+
+      - name: Scan operator image with Trivy
+        if: steps.changes.outputs.should_release == 'true'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ steps.meta.outputs.image }}
+          format: table
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+
+      - name: Attest image provenance
+        if: steps.changes.outputs.should_release == 'true' && (github.event_name == 'push' || inputs.push_artifacts)
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-name: ${{ steps.meta.outputs.image }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Install cosign
+        if: steps.changes.outputs.should_release == 'true' && (github.event_name == 'push' || inputs.push_artifacts)
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
+
+      - name: Sign image (keyless)
+        if: steps.changes.outputs.should_release == 'true' && (github.event_name == 'push' || inputs.push_artifacts)
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          cosign sign --yes "${{ steps.meta.outputs.image }}@${{ steps.build.outputs.digest }}"

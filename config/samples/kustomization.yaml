@@ -1,0 +1,6 @@
+## Append samples of your project ##
+resources:
+- certificates_v1alpha1_certificatejob.yaml
+- certificatejob_namespace_owner_rbac.yaml
+- networkpolicy_certificatejob_broker_egress.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples

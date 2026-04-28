@@ -1,0 +1,27 @@
+{{- if and .Values.webhook.enabled .Values.certManager.enabled }}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "certificate-job-operator.fullname" . }}-selfsigned-issuer
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "certificate-job-operator.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "certificate-job-operator.fullname" . }}-serving-cert
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "certificate-job-operator.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "certificate-job-operator.webhookSecretName" . }}
+  issuerRef:
+    kind: Issuer
+    name: {{ include "certificate-job-operator.fullname" . }}-selfsigned-issuer
+  dnsNames:
+    - {{ include "certificate-job-operator.fullname" . }}-webhook.{{ .Release.Namespace }}.svc
+    - {{ include "certificate-job-operator.fullname" . }}-webhook.{{ .Release.Namespace }}.svc.cluster.local
+{{- end }}

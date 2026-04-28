@@ -1,0 +1,24 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  creationTimestamp: null
+  name: certificatejob-owner
+rules:
+- apiGroups:
+  - certificates.rezzell.com
+  resources:
+  - certificatejobs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - certificates.rezzell.com
+  resources:
+  - certificatejobs/status
+  verbs:
+  - get

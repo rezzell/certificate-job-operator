@@ -1,0 +1,17 @@
+apiVersion: v2
+name: certificate-job-operator
+description: Runs certificate-driven Kubernetes Job workflows when cert-manager Certificates change.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.30.0-0"
+home: https://github.com/russell/certificate-job-operator
+sources:
+  - https://github.com/russell/certificate-job-operator
+keywords:
+  - certificates
+  - operator
+  - cert-manager
+maintainers:
+  - name: Certificate Job Operator Maintainers
+    email: oss@rezzell.com

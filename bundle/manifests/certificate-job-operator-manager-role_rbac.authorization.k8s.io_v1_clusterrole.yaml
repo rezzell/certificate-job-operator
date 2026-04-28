@@ -1,0 +1,47 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  creationTimestamp: null
+  name: certificate-job-operator-manager-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  verbs:
+  - create
+  - get
+  - list
+  - watch
+- apiGroups:
+  - cert-manager.io
+  resources:
+  - certificates
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - certificates.rezzell.com
+  resources:
+  - certificatejobs
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - certificates.rezzell.com
+  resources:
+  - certificatejobs/status
+  verbs:
+  - get
+  - patch
+  - update

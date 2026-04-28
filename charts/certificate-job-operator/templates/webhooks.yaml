@@ -1,0 +1,53 @@
+{{- if .Values.webhook.enabled }}
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: {{ include "certificate-job-operator.fullname" . }}-mutating
+  labels:
+    {{- include "certificate-job-operator.labels" . | nindent 4 }}
+  {{- if .Values.certManager.enabled }}
+  annotations:
+    cert-manager.io/inject-ca-from: {{ printf "%s/%s-serving-cert" .Release.Namespace (include "certificate-job-operator.fullname" .) | quote }}
+  {{- end }}
+webhooks:
+  - name: {{ printf "m%s.kb.io" (include "certificate-job-operator.fullname" .) | trunc 63 | trimSuffix "-" }}
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+    failurePolicy: {{ .Values.webhook.failurePolicy }}
+    clientConfig:
+      service:
+        name: {{ include "certificate-job-operator.fullname" . }}-webhook
+        namespace: {{ .Release.Namespace }}
+        path: /mutate-certificates-rezzell-com-v1alpha1-certificatejob
+    rules:
+      - apiGroups: ["certificates.rezzell.com"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["certificatejobs"]
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: {{ include "certificate-job-operator.fullname" . }}-validating
+  labels:
+    {{- include "certificate-job-operator.labels" . | nindent 4 }}
+  {{- if .Values.certManager.enabled }}
+  annotations:
+    cert-manager.io/inject-ca-from: {{ printf "%s/%s-serving-cert" .Release.Namespace (include "certificate-job-operator.fullname" .) | quote }}
+  {{- end }}
+webhooks:
+  - name: {{ printf "v%s.kb.io" (include "certificate-job-operator.fullname" .) | trunc 63 | trimSuffix "-" }}
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+    failurePolicy: {{ .Values.webhook.failurePolicy }}
+    clientConfig:
+      service:
+        name: {{ include "certificate-job-operator.fullname" . }}-webhook
+        namespace: {{ .Release.Namespace }}
+        path: /validate-certificates-rezzell-com-v1alpha1-certificatejob
+    rules:
+      - apiGroups: ["certificates.rezzell.com"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["certificatejobs"]
+{{- end }}

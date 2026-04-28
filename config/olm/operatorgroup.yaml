@@ -1,0 +1,8 @@
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: certificate-job-operator-og
+  namespace: certificate-job-operator-system
+spec:
+  targetNamespaces:
+  - certificate-job-operator-system

@@ -1,0 +1,47 @@
+apiVersion: operators.coreos.com/v1alpha1
+kind: ClusterServiceVersion
+metadata:
+  annotations:
+    alm-examples: '[]'
+    capabilities: Basic Install
+  name: certificate-job-operator.v0.0.0
+  namespace: placeholder
+spec:
+  apiservicedefinitions: {}
+  customresourcedefinitions:
+    owned:
+    - description: CertificateJob is the Schema for the certificatejobs API.
+      displayName: Certificate Job
+      kind: CertificateJob
+      name: certificatejobs.certificates.rezzell.com
+      version: v1alpha1
+  description: Runs certificate-driven Kubernetes Job workflows when cert-manager
+    Certificate resources change.
+  displayName: Certificate Job Operator
+  install:
+    spec:
+      deployments: null
+    strategy: ""
+  installModes:
+  - supported: true
+    type: OwnNamespace
+  - supported: true
+    type: SingleNamespace
+  - supported: false
+    type: MultiNamespace
+  - supported: false
+    type: AllNamespaces
+  keywords:
+  - certificate-job-operator
+  links:
+  - name: Certificate Job Operator
+    url: https://github.com/russell/certificate-job-operator
+  maintainers:
+  - email: oss@rezzell.com
+    name: Certificate Job Operator Maintainers
+  maturity: alpha
+  minKubeVersion: 1.30.0
+  provider:
+    name: certificate-job-operator
+    url: https://github.com/russell/certificate-job-operator
+  version: 0.1.0

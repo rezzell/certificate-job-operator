@@ -1,0 +1,74 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/example/certificate-job-operator
+  pullPolicy: IfNotPresent
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+rbac:
+  create: true
+  # Secure default: namespace-scoped permissions.
+  # Set true only when cluster owners explicitly want cluster-wide watch and access.
+  clusterScoped: false
+
+# Set to a comma-separated namespace list (e.g. "team-a,team-b") to scope the controller.
+# Empty + rbac.clusterScoped=false defaults to the release namespace.
+# Empty + rbac.clusterScoped=true watches all namespaces.
+watchNamespace: ""
+
+leaderElection:
+  enabled: true
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 128Mi
+  requests:
+    cpu: 10m
+    memory: 64Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+metrics:
+  enabled: false
+  secure: true
+  service:
+    port: 8443
+
+webhook:
+  enabled: true
+  failurePolicy: Fail
+  service:
+    port: 443
+    targetPort: 9443
+  # Leave empty to use the default generated name.
+  secretName: ""
+
+certManager:
+  enabled: true

@@ -1,0 +1,210 @@
+name: Release OLM Artifacts
+
+on:
+  push:
+    tags:
+      - 'olm-v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version without prefix (example: 0.2.0)'
+        required: true
+        type: string
+      operator_image:
+        description: 'Published manager image reference (example: ghcr.io/org/certificate-job-operator:v0.2.0)'
+        required: false
+        default: ''
+        type: string
+      image_tag_base:
+        description: 'Base image path for bundle/catalog (example: ghcr.io/org/certificate-job-operator)'
+        required: false
+        default: ''
+        type: string
+      push_artifacts:
+        description: 'Push/sign bundle and catalog images'
+        required: false
+        default: true
+        type: boolean
+      force_release:
+        description: 'Bypass path guard and release anyway'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  actions: read
+  contents: read
+  packages: write
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      GOCACHE: /tmp/certjob-go-build-cache
+      GOMODCACHE: /tmp/certjob-go-mod-cache
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Detect OLM component changes
+        id: changes
+        env:
+          FORCE_RELEASE: ${{ inputs.force_release }}
+        run: |
+          set -euo pipefail
+          if [[ "${FORCE_RELEASE:-false}" == "true" ]]; then
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          CHANGED_FILES="$(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" || true)"
+          if [[ -z "${CHANGED_FILES}" ]]; then
+            CHANGED_FILES="$(git show --name-only --pretty='' "$GITHUB_SHA" || true)"
+          fi
+
+          echo "Changed files:"
+          echo "${CHANGED_FILES}"
+
+          SHOULD_RELEASE=false
+          while IFS= read -r file; do
+            [[ -z "$file" ]] && continue
+            case "$file" in
+              bundle/*|catalog/*|config/olm/*|config/manifests/*|config/manager/*|config/rbac/*|config/webhook/*|config/default/*|config/crd/*|config/certmanager/*|PROJECT|Makefile)
+                SHOULD_RELEASE=true
+                break
+                ;;
+            esac
+          done <<< "${CHANGED_FILES}"
+
+          echo "should_release=${SHOULD_RELEASE}" >> "$GITHUB_OUTPUT"
+
+      - name: Release guard status
+        if: steps.changes.outputs.should_release != 'true'
+        run: echo "Skipping OLM release; no OLM component paths changed. Use force_release=true to override."
+
+      - name: Setup Go
+        if: steps.changes.outputs.should_release == 'true'
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+
+      - name: Resolve release metadata
+        if: steps.changes.outputs.should_release == 'true'
+        id: meta
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_OPERATOR_IMAGE: ${{ inputs.operator_image }}
+          INPUT_IMAGE_TAG_BASE: ${{ inputs.image_tag_base }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME#olm-v}"
+          else
+            VERSION="${INPUT_VERSION}"
+          fi
+
+          if [[ -z "${VERSION}" ]]; then
+            echo "version is required"
+            exit 1
+          fi
+
+          IMAGE_TAG_BASE="${INPUT_IMAGE_TAG_BASE:-ghcr.io/${GITHUB_REPOSITORY_OWNER}/certificate-job-operator}"
+          OPERATOR_IMAGE="${INPUT_OPERATOR_IMAGE:-${IMAGE_TAG_BASE}:v${VERSION}}"
+          BUNDLE_IMAGE="${IMAGE_TAG_BASE}-bundle:v${VERSION}"
+          CATALOG_IMAGE="${IMAGE_TAG_BASE}-catalog:v${VERSION}"
+
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "image_tag_base=${IMAGE_TAG_BASE}" >> "$GITHUB_OUTPUT"
+          echo "operator_image=${OPERATOR_IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "bundle_image=${BUNDLE_IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "catalog_image=${CATALOG_IMAGE}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate and validate bundle/catalog content
+        if: steps.changes.outputs.should_release == 'true'
+        run: |
+          make bundle VERSION=${{ steps.meta.outputs.version }} IMG=${{ steps.meta.outputs.operator_image }} IMAGE_TAG_BASE=${{ steps.meta.outputs.image_tag_base }}
+          make catalog-validate VERSION=${{ steps.meta.outputs.version }} IMAGE_TAG_BASE=${{ steps.meta.outputs.image_tag_base }}
+
+      - name: Upload OLM manifests
+        if: steps.changes.outputs.should_release == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: olm-artifacts-v${{ steps.meta.outputs.version }}
+          path: |
+            bundle/**
+            catalog/**
+
+      - name: Build bundle image
+        if: steps.changes.outputs.should_release == 'true'
+        run: make bundle-build VERSION=${{ steps.meta.outputs.version }} IMAGE_TAG_BASE=${{ steps.meta.outputs.image_tag_base }}
+
+      - name: Build catalog image
+        if: steps.changes.outputs.should_release == 'true'
+        run: make catalog-build VERSION=${{ steps.meta.outputs.version }} IMAGE_TAG_BASE=${{ steps.meta.outputs.image_tag_base }}
+
+      - name: Generate bundle image SBOM
+        if: steps.changes.outputs.should_release == 'true'
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          image: ${{ steps.meta.outputs.bundle_image }}
+          format: spdx-json
+          artifact-name: bundle-image-sbom.spdx.json
+
+      - name: Generate catalog image SBOM
+        if: steps.changes.outputs.should_release == 'true'
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          image: ${{ steps.meta.outputs.catalog_image }}
+          format: spdx-json
+          artifact-name: catalog-image-sbom.spdx.json
+
+      - name: Scan bundle image with Trivy
+        if: steps.changes.outputs.should_release == 'true'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ steps.meta.outputs.bundle_image }}
+          format: table
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+
+      - name: Scan catalog image with Trivy
+        if: steps.changes.outputs.should_release == 'true'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ steps.meta.outputs.catalog_image }}
+          format: table
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+
+      - name: Login to GHCR
+        if: steps.changes.outputs.should_release == 'true' && (github.event_name == 'push' || inputs.push_artifacts)
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push bundle image
+        if: steps.changes.outputs.should_release == 'true' && (github.event_name == 'push' || inputs.push_artifacts)
+        run: make bundle-push VERSION=${{ steps.meta.outputs.version }} IMAGE_TAG_BASE=${{ steps.meta.outputs.image_tag_base }}
+
+      - name: Push catalog image
+        if: steps.changes.outputs.should_release == 'true' && (github.event_name == 'push' || inputs.push_artifacts)
+        run: make catalog-push VERSION=${{ steps.meta.outputs.version }} IMAGE_TAG_BASE=${{ steps.meta.outputs.image_tag_base }}
+
+      - name: Install cosign
+        if: steps.changes.outputs.should_release == 'true' && (github.event_name == 'push' || inputs.push_artifacts)
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
+
+      - name: Sign OLM images (keyless)
+        if: steps.changes.outputs.should_release == 'true' && (github.event_name == 'push' || inputs.push_artifacts)
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          cosign sign --yes "${{ steps.meta.outputs.bundle_image }}"
+          cosign sign --yes "${{ steps.meta.outputs.catalog_image }}"

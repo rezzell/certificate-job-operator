@@ -1,0 +1,11 @@
+certificate-job-operator has been installed in namespace {{ .Release.Namespace }}.
+
+Security defaults:
+- Namespace-scoped RBAC is enabled by default (set rbac.clusterScoped=true only when required).
+- When rbac.clusterScoped=false and watchNamespace is empty, WATCH_NAMESPACE defaults to the release namespace.
+
+To check deployment status:
+  kubectl get deploy -n {{ .Release.Namespace }} {{ include "certificate-job-operator.fullname" . }}
+
+To install a sample CertificateJob:
+  kubectl apply -f config/samples/certificates_v1alpha1_certificatejob.yaml -n {{ .Release.Namespace }}

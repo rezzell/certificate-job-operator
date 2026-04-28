@@ -1,0 +1,11 @@
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: certificate-job-operator
+  namespace: certificate-job-operator-system
+spec:
+  channel: alpha
+  installPlanApproval: Automatic
+  name: certificate-job-operator
+  source: certificate-job-operator-catalog
+  sourceNamespace: openshift-marketplace

@@ -1,0 +1,329 @@
+apiVersion: operators.coreos.com/v1alpha1
+kind: ClusterServiceVersion
+metadata:
+  annotations:
+    alm-examples: |-
+      [
+        {
+          "apiVersion": "certificates.rezzell.com/v1alpha1",
+          "kind": "CertificateJob",
+          "metadata": {
+            "labels": {
+              "app.kubernetes.io/managed-by": "kustomize",
+              "app.kubernetes.io/name": "certificate-job-operator"
+            },
+            "name": "certificatejob-sample"
+          },
+          "spec": {
+            "certificateSelector": {
+              "matchLabels": {
+                "cert-role": "edge"
+              }
+            },
+            "failurePolicy": "StopDownstream",
+            "jobTTLSecondsAfterFinished": 3600,
+            "jobs": [
+              {
+                "name": "copy-secret",
+                "template": {
+                  "template": {
+                    "spec": {
+                      "containers": [
+                        {
+                          "command": [
+                            "/bin/sh",
+                            "-ec",
+                            "ls -l /var/run/certificate-input\ncp /var/run/certificate-input/tls.crt /tmp/tls.crt\ncp /var/run/certificate-input/tls.key /tmp/tls.key\n"
+                          ],
+                          "image": "registry.k8s.io/busybox:1.36",
+                          "name": "copy"
+                        }
+                      ],
+                      "restartPolicy": "Never"
+                    }
+                  }
+                }
+              },
+              {
+                "name": "notify",
+                "template": {
+                  "template": {
+                    "spec": {
+                      "containers": [
+                        {
+                          "command": [
+                            "/bin/sh",
+                            "-ec",
+                            "echo \"certificate copied, run follow-up workflow\"\n"
+                          ],
+                          "image": "registry.k8s.io/busybox:1.36",
+                          "name": "notify"
+                        }
+                      ],
+                      "restartPolicy": "Never"
+                    }
+                  }
+                }
+              }
+            ],
+            "parallelism": 1,
+            "workflow": {
+              "edges": [
+                {
+                  "from": "copy-secret",
+                  "to": "notify"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    capabilities: Basic Install
+    createdAt: "2026-04-28T05:05:22Z"
+    operators.operatorframework.io/builder: operator-sdk-v1.42.2
+    operators.operatorframework.io/project_layout: go.kubebuilder.io/v4
+  name: certificate-job-operator.v0.1.0
+  namespace: placeholder
+spec:
+  apiservicedefinitions: {}
+  customresourcedefinitions:
+    owned:
+    - description: CertificateJob is the Schema for the certificatejobs API.
+      displayName: Certificate Job
+      kind: CertificateJob
+      name: certificatejobs.certificates.rezzell.com
+      version: v1alpha1
+  description: Runs certificate-driven Kubernetes Job workflows when cert-manager
+    Certificate resources change.
+  displayName: Certificate Job Operator
+  install:
+    spec:
+      clusterPermissions:
+      - rules:
+        - apiGroups:
+          - authentication.k8s.io
+          resources:
+          - tokenreviews
+          verbs:
+          - create
+        - apiGroups:
+          - authorization.k8s.io
+          resources:
+          - subjectaccessreviews
+          verbs:
+          - create
+        serviceAccountName: certificate-job-operator-controller-manager
+      deployments:
+      - label:
+          app.kubernetes.io/managed-by: kustomize
+          app.kubernetes.io/name: certificate-job-operator
+          control-plane: controller-manager
+        name: certificate-job-operator-controller-manager
+        spec:
+          replicas: 1
+          selector:
+            matchLabels:
+              app.kubernetes.io/name: certificate-job-operator
+              control-plane: controller-manager
+          strategy: {}
+          template:
+            metadata:
+              annotations:
+                kubectl.kubernetes.io/default-container: manager
+              labels:
+                app.kubernetes.io/name: certificate-job-operator
+                control-plane: controller-manager
+            spec:
+              containers:
+              - args:
+                - --metrics-bind-address=:8443
+                - --leader-elect
+                - --health-probe-bind-address=:8081
+                - --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs
+                command:
+                - /manager
+                image: rezzell.com/certificate-job-operator:v0.1.0
+                livenessProbe:
+                  httpGet:
+                    path: /healthz
+                    port: 8081
+                  initialDelaySeconds: 15
+                  periodSeconds: 20
+                name: manager
+                ports:
+                - containerPort: 9443
+                  name: webhook-server
+                  protocol: TCP
+                readinessProbe:
+                  httpGet:
+                    path: /readyz
+                    port: 8081
+                  initialDelaySeconds: 5
+                  periodSeconds: 10
+                resources:
+                  limits:
+                    cpu: 500m
+                    memory: 128Mi
+                  requests:
+                    cpu: 10m
+                    memory: 64Mi
+                securityContext:
+                  allowPrivilegeEscalation: false
+                  capabilities:
+                    drop:
+                    - ALL
+                  readOnlyRootFilesystem: true
+                volumeMounts:
+                - mountPath: /tmp/k8s-webhook-server/serving-certs
+                  name: webhook-certs
+                  readOnly: true
+              securityContext:
+                runAsNonRoot: true
+                seccompProfile:
+                  type: RuntimeDefault
+              serviceAccountName: certificate-job-operator-controller-manager
+              terminationGracePeriodSeconds: 10
+              volumes:
+              - name: webhook-certs
+                secret:
+                  secretName: webhook-server-cert
+      permissions:
+      - rules:
+        - apiGroups:
+          - ""
+          resources:
+          - configmaps
+          verbs:
+          - get
+          - list
+          - watch
+          - create
+          - update
+          - patch
+          - delete
+        - apiGroups:
+          - coordination.k8s.io
+          resources:
+          - leases
+          verbs:
+          - get
+          - list
+          - watch
+          - create
+          - update
+          - patch
+          - delete
+        - apiGroups:
+          - ""
+          resources:
+          - events
+          verbs:
+          - create
+          - patch
+        - apiGroups:
+          - ""
+          resources:
+          - secrets
+          verbs:
+          - get
+          - list
+          - watch
+        - apiGroups:
+          - batch
+          resources:
+          - jobs
+          verbs:
+          - create
+          - get
+          - list
+          - watch
+        - apiGroups:
+          - cert-manager.io
+          resources:
+          - certificates
+          verbs:
+          - get
+          - list
+          - watch
+        - apiGroups:
+          - certificates.rezzell.com
+          resources:
+          - certificatejobs
+          verbs:
+          - get
+          - list
+          - watch
+        - apiGroups:
+          - certificates.rezzell.com
+          resources:
+          - certificatejobs/status
+          verbs:
+          - get
+          - patch
+          - update
+        serviceAccountName: certificate-job-operator-controller-manager
+    strategy: deployment
+  installModes:
+  - supported: true
+    type: OwnNamespace
+  - supported: true
+    type: SingleNamespace
+  - supported: false
+    type: MultiNamespace
+  - supported: false
+    type: AllNamespaces
+  keywords:
+  - certificate-job-operator
+  links:
+  - name: Certificate Job Operator
+    url: https://github.com/russell/certificate-job-operator
+  maintainers:
+  - email: oss@rezzell.com
+    name: Certificate Job Operator Maintainers
+  maturity: alpha
+  minKubeVersion: 1.30.0
+  provider:
+    name: certificate-job-operator
+    url: https://github.com/russell/certificate-job-operator
+  version: 0.1.0
+  webhookdefinitions:
+  - admissionReviewVersions:
+    - v1
+    containerPort: 443
+    deploymentName: certificate-job-operator-controller-manager
+    failurePolicy: Fail
+    generateName: mcertificatejob-v1alpha1.kb.io
+    rules:
+    - apiGroups:
+      - certificates.rezzell.com
+      apiVersions:
+      - v1alpha1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - certificatejobs
+    sideEffects: None
+    targetPort: 9443
+    type: MutatingAdmissionWebhook
+    webhookPath: /mutate-certificates-rezzell-com-v1alpha1-certificatejob
+  - admissionReviewVersions:
+    - v1
+    containerPort: 443
+    deploymentName: certificate-job-operator-controller-manager
+    failurePolicy: Fail
+    generateName: vcertificatejob-v1alpha1.kb.io
+    rules:
+    - apiGroups:
+      - certificates.rezzell.com
+      apiVersions:
+      - v1alpha1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - certificatejobs
+    sideEffects: None
+    targetPort: 9443
+    type: ValidatingAdmissionWebhook
+    webhookPath: /validate-certificates-rezzell-com-v1alpha1-certificatejob

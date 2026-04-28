@@ -1,0 +1,47 @@
+apiVersion: certificates.rezzell.com/v1alpha1
+kind: CertificateJob
+metadata:
+  labels:
+    app.kubernetes.io/name: certificate-job-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: certificatejob-sample
+spec:
+  certificateSelector:
+    matchLabels:
+      cert-role: edge
+  parallelism: 1
+  jobTTLSecondsAfterFinished: 3600
+  failurePolicy: StopDownstream
+  jobs:
+  - name: copy-secret
+    template:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+          - name: copy
+            image: registry.k8s.io/busybox:1.36
+            command:
+            - /bin/sh
+            - -ec
+            - |
+              ls -l /var/run/certificate-input
+              cp /var/run/certificate-input/tls.crt /tmp/tls.crt
+              cp /var/run/certificate-input/tls.key /tmp/tls.key
+  - name: notify
+    template:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+          - name: notify
+            image: registry.k8s.io/busybox:1.36
+            command:
+            - /bin/sh
+            - -ec
+            - |
+              echo "certificate copied, run follow-up workflow"
+  workflow:
+    edges:
+    - from: copy-secret
+      to: notify

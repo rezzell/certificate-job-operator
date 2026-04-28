@@ -1,0 +1,175 @@
+name: Release Helm Chart
+
+on:
+  push:
+    tags:
+      - 'helm-v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version without prefix (example: 0.2.0)'
+        required: true
+        type: string
+      chart_dir:
+        description: 'Path to chart directory'
+        required: false
+        default: 'charts/certificate-job-operator'
+        type: string
+      oci_repository:
+        description: 'OCI chart repository path (example: ghcr.io/org/charts)'
+        required: false
+        default: ''
+        type: string
+      push_artifacts:
+        description: 'Push/sign chart to OCI registry'
+        required: false
+        default: true
+        type: boolean
+      force_release:
+        description: 'Bypass path guard and release anyway'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  actions: read
+  contents: read
+  packages: write
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Detect Helm component changes
+        id: changes
+        env:
+          FORCE_RELEASE: ${{ inputs.force_release }}
+        run: |
+          set -euo pipefail
+          if [[ "${FORCE_RELEASE:-false}" == "true" ]]; then
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          CHANGED_FILES="$(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" || true)"
+          if [[ -z "${CHANGED_FILES}" ]]; then
+            CHANGED_FILES="$(git show --name-only --pretty='' "$GITHUB_SHA" || true)"
+          fi
+
+          echo "Changed files:"
+          echo "${CHANGED_FILES}"
+
+          SHOULD_RELEASE=false
+          while IFS= read -r file; do
+            [[ -z "$file" ]] && continue
+            case "$file" in
+              charts/*|Makefile|README.md)
+                SHOULD_RELEASE=true
+                break
+                ;;
+            esac
+          done <<< "${CHANGED_FILES}"
+
+          echo "should_release=${SHOULD_RELEASE}" >> "$GITHUB_OUTPUT"
+
+      - name: Release guard status
+        if: steps.changes.outputs.should_release != 'true'
+        run: echo "Skipping Helm release; no Helm component paths changed. Use force_release=true to override."
+
+      - name: Setup Helm
+        if: steps.changes.outputs.should_release == 'true'
+        uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
+
+      - name: Resolve release metadata
+        if: steps.changes.outputs.should_release == 'true'
+        id: meta
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_CHART_DIR: ${{ inputs.chart_dir }}
+          INPUT_OCI_REPOSITORY: ${{ inputs.oci_repository }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME#helm-v}"
+          else
+            VERSION="${INPUT_VERSION}"
+          fi
+
+          if [[ -z "${VERSION}" ]]; then
+            echo "version is required"
+            exit 1
+          fi
+
+          CHART_DIR="${INPUT_CHART_DIR:-charts/certificate-job-operator}"
+          OCI_REPOSITORY="${INPUT_OCI_REPOSITORY:-ghcr.io/${GITHUB_REPOSITORY_OWNER}/charts}"
+
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "chart_dir=${CHART_DIR}" >> "$GITHUB_OUTPUT"
+          echo "oci_repository=${OCI_REPOSITORY}" >> "$GITHUB_OUTPUT"
+
+      - name: Lint chart
+        if: steps.changes.outputs.should_release == 'true'
+        run: helm lint "${{ steps.meta.outputs.chart_dir }}"
+
+      - name: Generate Helm chart SBOM
+        if: steps.changes.outputs.should_release == 'true'
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          path: ${{ steps.meta.outputs.chart_dir }}
+          format: spdx-json
+          artifact-name: helm-chart-source-sbom.spdx.json
+
+      - name: Scan Helm chart with Trivy
+        if: steps.changes.outputs.should_release == 'true'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: ${{ steps.meta.outputs.chart_dir }}
+          format: table
+          exit-code: '1'
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+
+      - name: Package chart
+        if: steps.changes.outputs.should_release == 'true'
+        id: package
+        run: |
+          mkdir -p dist/charts
+          helm package "${{ steps.meta.outputs.chart_dir }}" --destination dist/charts --version "${{ steps.meta.outputs.version }}" --app-version "${{ steps.meta.outputs.version }}"
+          PACKAGE="$(ls dist/charts/*.tgz | head -n1)"
+          echo "package=${PACKAGE}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload chart artifact
+        if: steps.changes.outputs.should_release == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: helm-chart-v${{ steps.meta.outputs.version }}
+          path: ${{ steps.package.outputs.package }}
+
+      - name: Login to GHCR for OCI chart publish
+        if: steps.changes.outputs.should_release == 'true' && (github.event_name == 'push' || inputs.push_artifacts)
+        env:
+          CR_PAT: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "${CR_PAT}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Push chart to OCI registry
+        if: steps.changes.outputs.should_release == 'true' && (github.event_name == 'push' || inputs.push_artifacts)
+        run: |
+          helm push "${{ steps.package.outputs.package }}" "oci://${{ steps.meta.outputs.oci_repository }}"
+
+      - name: Install cosign
+        if: steps.changes.outputs.should_release == 'true' && (github.event_name == 'push' || inputs.push_artifacts)
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
+
+      - name: Sign Helm chart artifact (keyless)
+        if: steps.changes.outputs.should_release == 'true' && (github.event_name == 'push' || inputs.push_artifacts)
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          CHART_NAME=$(basename "${{ steps.meta.outputs.chart_dir }}")
+          cosign sign --yes "${{ steps.meta.outputs.oci_repository }}/${CHART_NAME}:${{ steps.meta.outputs.version }}"

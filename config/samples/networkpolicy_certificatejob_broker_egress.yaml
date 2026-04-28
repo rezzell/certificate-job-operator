@@ -1,0 +1,18 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: certificatejob-broker-egress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/managed-by: certificate-job-operator
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          certificate-job-broker: "true"
+    ports:
+    - protocol: TCP
+      port: 443
