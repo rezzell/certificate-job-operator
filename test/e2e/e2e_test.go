@@ -252,12 +252,12 @@ var _ = Describe("Manager", Ordered, func() {
 			}
 			Eventually(verifyCurlUp, 5*time.Minute).Should(Succeed())
 
-			By("getting the metrics by checking curl-metrics logs")
-			metricsOutput := getMetricsOutput()
-			Expect(metricsOutput).To(ContainSubstring(
-				"controller_runtime_reconcile_total",
-			))
-		})
+				By("getting the metrics by checking curl-metrics logs")
+				metricsOutput := getMetricsOutput()
+				Expect(metricsOutput).To(ContainSubstring(
+					"certwatcher_read_certificate_total",
+				))
+			})
 
 		It("should provisioned cert-manager", func() {
 			By("validating that cert-manager has the certificate Secret")

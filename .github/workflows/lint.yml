@@ -16,8 +16,10 @@ jobs:
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
+          check-latest: true
 
       - name: Run linter
-        uses: golangci/golangci-lint-action@4afd733a84b1f43292c63897423277bb7f4313a9 # v8
-        with:
-          version: v2.1.0
+        env:
+          GOCACHE: /tmp/certjob-go-build-cache
+          GOMODCACHE: /tmp/certjob-go-mod-cache
+        run: make lint
