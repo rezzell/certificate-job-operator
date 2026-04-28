@@ -848,7 +848,7 @@ func injectCertificateSecret(spec *batchv1.JobSpec, secretName string) {
 	volumeExists := false
 	for i := range spec.Template.Spec.Volumes {
 		if spec.Template.Spec.Volumes[i].Name == secretVolumeName {
-			spec.Template.Spec.Volumes[i].VolumeSource.Secret = &corev1.SecretVolumeSource{SecretName: secretName}
+			spec.Template.Spec.Volumes[i].Secret = &corev1.SecretVolumeSource{SecretName: secretName}
 			volumeExists = true
 			break
 		}
