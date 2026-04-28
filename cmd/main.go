@@ -174,8 +174,9 @@ func main() {
 	}
 
 	if err := (&controller.CertificateJobReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+		//nolint:staticcheck // Reconciler still expects record.EventRecorder from the old events API.
 		Recorder: mgr.GetEventRecorderFor("certificatejob-controller"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "CertificateJob")
