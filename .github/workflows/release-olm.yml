@@ -114,11 +114,13 @@ jobs:
           BUNDLE_IMAGE="${IMAGE_TAG_BASE}-bundle:v${VERSION}"
           CATALOG_IMAGE="${IMAGE_TAG_BASE}-catalog:v${VERSION}"
 
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "image_tag_base=${IMAGE_TAG_BASE}" >> "$GITHUB_OUTPUT"
-          echo "operator_image=${OPERATOR_IMAGE}" >> "$GITHUB_OUTPUT"
-          echo "bundle_image=${BUNDLE_IMAGE}" >> "$GITHUB_OUTPUT"
-          echo "catalog_image=${CATALOG_IMAGE}" >> "$GITHUB_OUTPUT"
+          {
+            echo "version=${VERSION}"
+            echo "image_tag_base=${IMAGE_TAG_BASE}"
+            echo "operator_image=${OPERATOR_IMAGE}"
+            echo "bundle_image=${BUNDLE_IMAGE}"
+            echo "catalog_image=${CATALOG_IMAGE}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Generate and validate bundle/catalog content
         if: steps.changes.outputs.should_release == 'true'
