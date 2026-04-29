@@ -269,6 +269,121 @@ func boolPtr(v bool) *bool {
 	return &v
 }
 
+func TestValidateJobTemplateSecurity(t *testing.T) {
+	t.Parallel()
+
+	t.Run("accepts minimal valid template", func(t *testing.T) {
+		t.Parallel()
+
+		spec := &batchv1.JobSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name:  "runner",
+						Image: "busybox:1.36",
+					}},
+				},
+			},
+		}
+		if err := validateJobTemplateSecurity(spec); err != nil {
+			t.Fatalf("expected valid template, got %v", err)
+		}
+	})
+
+	t.Run("rejects host network", func(t *testing.T) {
+		t.Parallel()
+
+		spec := &batchv1.JobSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					HostNetwork: true,
+					Containers: []corev1.Container{{
+						Name:  "runner",
+						Image: "busybox:1.36",
+					}},
+				},
+			},
+		}
+		if err := validateJobTemplateSecurity(spec); err == nil {
+			t.Fatalf("expected hostNetwork validation error")
+		}
+	})
+}
+
+func TestHardenJobTemplate(t *testing.T) {
+	t.Parallel()
+
+	spec := &batchv1.JobSpec{
+		Template: corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{{
+					Name:  "runner",
+					Image: "busybox:1.36",
+				}},
+			},
+		},
+	}
+
+	hardenJobTemplate(spec, 3600)
+
+	if spec.TTLSecondsAfterFinished == nil || *spec.TTLSecondsAfterFinished != 3600 {
+		t.Fatalf("expected default TTL to be set, got %v", spec.TTLSecondsAfterFinished)
+	}
+	if spec.Template.Spec.AutomountServiceAccountToken == nil || *spec.Template.Spec.AutomountServiceAccountToken {
+		t.Fatalf("expected automount service account token disabled")
+	}
+	if spec.Template.Spec.EnableServiceLinks == nil || *spec.Template.Spec.EnableServiceLinks {
+		t.Fatalf("expected service links disabled")
+	}
+	if spec.Template.Spec.SecurityContext == nil || spec.Template.Spec.SecurityContext.SeccompProfile == nil {
+		t.Fatalf("expected pod seccomp profile to be set")
+	}
+
+	container := spec.Template.Spec.Containers[0]
+	if container.SecurityContext == nil || container.SecurityContext.SeccompProfile == nil {
+		t.Fatalf("expected container seccomp profile to be set")
+	}
+}
+
+func TestInjectCertificateSecret(t *testing.T) {
+	t.Parallel()
+
+	spec := &batchv1.JobSpec{
+		Template: corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{
+				InitContainers: []corev1.Container{{
+					Name:  "init",
+					Image: "busybox:1.36",
+				}},
+				Containers: []corev1.Container{{
+					Name:  "runner",
+					Image: "busybox:1.36",
+				}},
+			},
+		},
+	}
+
+	injectCertificateSecret(spec, "tls-secret")
+
+	if len(spec.Template.Spec.Volumes) != 1 {
+		t.Fatalf("expected 1 volume, got %d", len(spec.Template.Spec.Volumes))
+	}
+	if spec.Template.Spec.Volumes[0].Secret == nil || spec.Template.Spec.Volumes[0].Secret.SecretName != "tls-secret" {
+		t.Fatalf("expected secret volume to reference tls-secret")
+	}
+	if len(spec.Template.Spec.Containers[0].VolumeMounts) != 1 {
+		t.Fatalf("expected secret mount on main container")
+	}
+	if spec.Template.Spec.Containers[0].VolumeMounts[0].MountPath != secretMountPath {
+		t.Fatalf("expected mount path %q, got %q", secretMountPath, spec.Template.Spec.Containers[0].VolumeMounts[0].MountPath)
+	}
+
+	injectCertificateSecret(spec, "tls-secret-updated")
+	if spec.Template.Spec.Volumes[0].Secret == nil || spec.Template.Spec.Volumes[0].Secret.SecretName != "tls-secret-updated" {
+		t.Fatalf("expected existing secret volume to be updated")
+	}
+}
+
 func validCertificateJob(t *testing.T) *certificatesv1alpha1.CertificateJob {
 	t.Helper()
 
