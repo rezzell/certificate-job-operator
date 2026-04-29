@@ -155,7 +155,7 @@ REQUIRED_APPROVING_REVIEW_COUNT=1 make branch-protect
 Notes:
 - Requires GitHub CLI auth with admin permissions to the repository.
 - The target branch (`main`) must already exist on the remote.
-- Configure SonarCloud first (`SONAR_TOKEN`, and optionally `SONAR_ORGANIZATION` / `SONAR_PROJECT_KEY`) before enforcing SonarCloud as a required check.
+- Configure SonarCloud first (`SONAR_TOKEN`, disabled project Automatic Analysis, and optionally `SONAR_ORGANIZATION` / `SONAR_PROJECT_KEY`) before enforcing SonarCloud as a required check.
 
 ## Workflow Supply-Chain Policy
 
