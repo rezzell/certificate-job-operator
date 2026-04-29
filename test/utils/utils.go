@@ -34,6 +34,8 @@ const (
 
 	certmanagerVersion = "v1.16.3"
 	certmanagerURLTmpl = "https://github.com/cert-manager/cert-manager/releases/download/%s/cert-manager.yaml"
+
+	writeOutputError = "failed to write to output: %w"
 )
 
 func warnError(err error) {
@@ -220,7 +222,7 @@ func UncommentCode(filename, target, prefix string) error {
 	out := new(bytes.Buffer)
 	_, err = out.Write(content[:idx])
 	if err != nil {
-		return fmt.Errorf("failed to write to output: %w", err)
+		return fmt.Errorf(writeOutputError, err)
 	}
 
 	scanner := bufio.NewScanner(bytes.NewBufferString(target))
@@ -229,19 +231,19 @@ func UncommentCode(filename, target, prefix string) error {
 	}
 	for {
 		if _, err = out.WriteString(strings.TrimPrefix(scanner.Text(), prefix)); err != nil {
-			return fmt.Errorf("failed to write to output: %w", err)
+			return fmt.Errorf(writeOutputError, err)
 		}
 		// Avoid writing a newline in case the previous line was the last in target.
 		if !scanner.Scan() {
 			break
 		}
 		if _, err = out.WriteString("\n"); err != nil {
-			return fmt.Errorf("failed to write to output: %w", err)
+			return fmt.Errorf(writeOutputError, err)
 		}
 	}
 
 	if _, err = out.Write(content[idx+len(target):]); err != nil {
-		return fmt.Errorf("failed to write to output: %w", err)
+		return fmt.Errorf(writeOutputError, err)
 	}
 
 	// false positive
