@@ -204,7 +204,7 @@ func applyContainerSecurityDefaults(container *corev1.Container) {
 		container.SecurityContext.Capabilities = &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}}
 		return
 	}
-	if !containsCapability(container.SecurityContext.Capabilities.Drop, "ALL") {
+	if !containsCapability(container.SecurityContext.Capabilities.Drop) {
 		container.SecurityContext.Capabilities.Drop = append(container.SecurityContext.Capabilities.Drop, "ALL")
 	}
 }
@@ -213,9 +213,9 @@ func boolPointerTrue(v *bool) bool {
 	return v != nil && *v
 }
 
-func containsCapability(capabilities []corev1.Capability, target corev1.Capability) bool {
+func containsCapability(capabilities []corev1.Capability) bool {
 	for _, capability := range capabilities {
-		if capability == target {
+		if capability == "ALL" {
 			return true
 		}
 	}

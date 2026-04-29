@@ -38,6 +38,16 @@ const (
 	writeOutputError = "failed to write to output: %w"
 )
 
+var (
+	bufferWrite = func(buf *bytes.Buffer, p []byte) (int, error) {
+		return buf.Write(p)
+	}
+
+	bufferWriteString = func(buf *bytes.Buffer, s string) (int, error) {
+		return buf.WriteString(s)
+	}
+)
+
 func warnError(err error) {
 	_, _ = fmt.Fprintf(GinkgoWriter, "warning: %v\n", err)
 }
@@ -220,7 +230,7 @@ func UncommentCode(filename, target, prefix string) error {
 	}
 
 	out := new(bytes.Buffer)
-	_, err = out.Write(content[:idx])
+	_, err = bufferWrite(out, content[:idx])
 	if err != nil {
 		return fmt.Errorf(writeOutputError, err)
 	}
@@ -230,19 +240,19 @@ func UncommentCode(filename, target, prefix string) error {
 		return nil
 	}
 	for {
-		if _, err = out.WriteString(strings.TrimPrefix(scanner.Text(), prefix)); err != nil {
+		if _, err = bufferWriteString(out, strings.TrimPrefix(scanner.Text(), prefix)); err != nil {
 			return fmt.Errorf(writeOutputError, err)
 		}
 		// Avoid writing a newline in case the previous line was the last in target.
 		if !scanner.Scan() {
 			break
 		}
-		if _, err = out.WriteString("\n"); err != nil {
+		if _, err = bufferWriteString(out, "\n"); err != nil {
 			return fmt.Errorf(writeOutputError, err)
 		}
 	}
 
-	if _, err = out.Write(content[idx+len(target):]); err != nil {
+	if _, err = bufferWrite(out, content[idx+len(target):]); err != nil {
 		return fmt.Errorf(writeOutputError, err)
 	}
 
