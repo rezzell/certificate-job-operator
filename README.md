@@ -179,6 +179,7 @@ GitHub Actions also includes `sonarcloud.yml` with:
 
 SonarCloud setup:
 - add repository secret `SONAR_TOKEN`
+- disable SonarCloud Automatic Analysis for the project so CI-based analysis can upload coverage
 - optionally set repository variable `SONAR_ORGANIZATION` (defaults to `github.repository_owner`)
 - optionally set repository variable `SONAR_PROJECT_KEY` (defaults to `<owner>_<repo>`)
 
