@@ -127,7 +127,9 @@ git push origin helm-vX.Y.Z
 Before first public release, enforce branch protection on `main`:
 
 - Require pull request before merge
-- Require approvals
+- Require approvals as needed for your team size:
+  - solo maintainer default: `0` required approvals
+  - multi-maintainer recommended: `1+` required approvals
 - Require status checks to pass:
   - `Lint / Run on Ubuntu`
   - `Tests / Run on Ubuntu`
@@ -142,6 +144,12 @@ Repository automation:
 
 ```bash
 make branch-protect
+```
+
+To require explicit approvals once additional approvers exist:
+
+```bash
+REQUIRED_APPROVING_REVIEW_COUNT=1 make branch-protect
 ```
 
 Notes:
