@@ -208,6 +208,67 @@ func TestJobStateHelpers(t *testing.T) {
 	}
 }
 
+func TestApplyContainerSecurityDefaults(t *testing.T) {
+	t.Parallel()
+
+	t.Run("initializes empty security context", func(t *testing.T) {
+		t.Parallel()
+
+		container := &corev1.Container{Name: "runner"}
+		applyContainerSecurityDefaults(container)
+
+		if container.SecurityContext == nil {
+			t.Fatalf("expected security context to be initialized")
+		}
+		if container.SecurityContext.AllowPrivilegeEscalation == nil || *container.SecurityContext.AllowPrivilegeEscalation {
+			t.Fatalf("expected privilege escalation to be disabled")
+		}
+		if container.SecurityContext.SeccompProfile == nil {
+			t.Fatalf("expected seccomp profile to be initialized")
+		}
+		if container.SecurityContext.Capabilities == nil || !containsCapability(container.SecurityContext.Capabilities.Drop) {
+			t.Fatalf("expected ALL capability to be dropped")
+		}
+	})
+
+	t.Run("adds ALL drop capability when missing", func(t *testing.T) {
+		t.Parallel()
+
+		container := &corev1.Container{
+			Name: "runner",
+			SecurityContext: &corev1.SecurityContext{
+				Capabilities: &corev1.Capabilities{
+					Drop: []corev1.Capability{"NET_ADMIN"},
+				},
+			},
+		}
+
+		applyContainerSecurityDefaults(container)
+
+		if !containsCapability(container.SecurityContext.Capabilities.Drop) {
+			t.Fatalf("expected ALL capability to be present: %v", container.SecurityContext.Capabilities.Drop)
+		}
+	})
+}
+
+func TestBoolPointerTrue(t *testing.T) {
+	t.Parallel()
+
+	if boolPointerTrue(nil) {
+		t.Fatalf("nil should return false")
+	}
+	if boolPointerTrue(boolPtr(false)) {
+		t.Fatalf("false should return false")
+	}
+	if !boolPointerTrue(boolPtr(true)) {
+		t.Fatalf("true should return true")
+	}
+}
+
+func boolPtr(v bool) *bool {
+	return &v
+}
+
 func validCertificateJob(t *testing.T) *certificatesv1alpha1.CertificateJob {
 	t.Helper()
 
