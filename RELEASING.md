@@ -134,6 +134,7 @@ Before first public release, enforce branch protection on `main`:
   - `E2E Tests / Run on Ubuntu`
   - `Security / govulncheck`
   - `Security / gosec`
+  - `SonarCloud / SonarCloud Scan`
   - `Workflow Lint / Validate GitHub Workflows`
 - Restrict direct pushes to `main`
 
@@ -146,6 +147,7 @@ make branch-protect
 Notes:
 - Requires GitHub CLI auth with admin permissions to the repository.
 - The target branch (`main`) must already exist on the remote.
+- Configure SonarCloud first (`SONAR_TOKEN`, and optionally `SONAR_ORGANIZATION` / `SONAR_PROJECT_KEY`) before enforcing SonarCloud as a required check.
 
 ## Workflow Supply-Chain Policy
 

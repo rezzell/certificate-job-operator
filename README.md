@@ -172,6 +172,16 @@ GitHub Actions includes `security.yml` with:
 - `gosec` static analysis
 - immutable SHA-pinned workflow actions
 
+GitHub Actions also includes `sonarcloud.yml` with:
+- SonarCloud static analysis + quality gate enforcement
+- Go coverage upload from `cover.out`
+- immutable SHA-pinned SonarCloud action
+
+SonarCloud setup:
+- add repository secret `SONAR_TOKEN`
+- optionally set repository variable `SONAR_ORGANIZATION` (defaults to `github.repository_owner`)
+- optionally set repository variable `SONAR_PROJECT_KEY` (defaults to `<owner>_<repo>`)
+
 ## Split Release Pipelines
 
 The project now has separate release workflows so operator, OLM artifacts, and Helm can be released independently.

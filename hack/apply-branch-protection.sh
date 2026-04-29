@@ -29,6 +29,7 @@ gh api \
       "E2E Tests / Run on Ubuntu",
       "Security / govulncheck",
       "Security / gosec",
+      "SonarCloud / SonarCloud Scan",
       "Workflow Lint / Validate GitHub Workflows"
     ]
   },
