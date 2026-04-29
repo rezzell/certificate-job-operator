@@ -252,12 +252,12 @@ var _ = Describe("Manager", Ordered, func() {
 			}
 			Eventually(verifyCurlUp, 5*time.Minute).Should(Succeed())
 
-				By("getting the metrics by checking curl-metrics logs")
-				metricsOutput := getMetricsOutput()
-				Expect(metricsOutput).To(ContainSubstring(
-					"certwatcher_read_certificate_total",
-				))
-			})
+			By("getting the metrics by checking curl-metrics logs")
+			metricsOutput := getMetricsOutput()
+			Expect(metricsOutput).To(ContainSubstring(
+				"certwatcher_read_certificate_total",
+			))
+		})
 
 		It("should provisioned cert-manager", func() {
 			By("validating that cert-manager has the certificate Secret")
@@ -299,7 +299,7 @@ var _ = Describe("Manager", Ordered, func() {
 
 		// +kubebuilder:scaffold:e2e-webhooks-checks
 
-		// TODO: Customize the e2e test suite with scenarios specific to your project.
+		// Customize the e2e test suite with scenarios specific to your project.
 		// Consider applying sample/CR(s) and check their status and/or verifying
 		// the reconciliation by using the metrics, i.e.:
 		// metricsOutput := getMetricsOutput()

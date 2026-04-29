@@ -12,7 +12,14 @@ rules:
   resources:
   - certificatejobs
   verbs:
-  - '*'
+  - create
+  - delete
+  - deletecollection
+  - get
+  - list
+  - patch
+  - update
+  - watch
 - apiGroups:
   - certificates.rezzell.com
   resources:
