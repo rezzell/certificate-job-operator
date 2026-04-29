@@ -1,0 +1,54 @@
+name: SonarCloud
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    name: SonarCloud Scan
+    if: ${{ secrets.SONAR_TOKEN != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: Resolve SonarCloud identifiers
+        id: sonar-identifiers
+        env:
+          SONAR_ORGANIZATION_VAR: ${{ vars.SONAR_ORGANIZATION }}
+          SONAR_PROJECT_KEY_VAR: ${{ vars.SONAR_PROJECT_KEY }}
+        run: |
+          organization="${SONAR_ORGANIZATION_VAR:-${GITHUB_REPOSITORY_OWNER}}"
+          project_key="${SONAR_PROJECT_KEY_VAR:-${GITHUB_REPOSITORY//\//_}}"
+          echo "organization=${organization}" >> "${GITHUB_OUTPUT}"
+          echo "project_key=${project_key}" >> "${GITHUB_OUTPUT}"
+
+      - name: Run unit tests with coverage
+        env:
+          GOCACHE: /tmp/certjob-go-build-cache
+          GOMODCACHE: /tmp/certjob-go-mod-cache
+        run: make test
+
+      - name: SonarCloud scan
+        uses: SonarSource/sonarqube-scan-action@55e44800a8f495208cce6e4e82f5dedb45fcf0ef # v7.2.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >
+            -Dsonar.organization=${{ steps.sonar-identifiers.outputs.organization }}
+            -Dsonar.projectKey=${{ steps.sonar-identifiers.outputs.project_key }}
+            -Dsonar.go.coverage.reportPaths=cover.out
+            -Dsonar.qualitygate.wait=true
+            -Dsonar.qualitygate.timeout=300
