@@ -3,6 +3,7 @@ set -euo pipefail
 
 REPO="${1:-}"
 BRANCH="${2:-main}"
+REQUIRED_APPROVING_REVIEW_COUNT="${REQUIRED_APPROVING_REVIEW_COUNT:-0}"
 
 if [[ -z "${REPO}" ]]; then
   REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
@@ -13,13 +14,19 @@ if [[ -z "${REPO}" ]]; then
   exit 1
 fi
 
+if ! [[ "${REQUIRED_APPROVING_REVIEW_COUNT}" =~ ^[0-6]$ ]]; then
+  echo "REQUIRED_APPROVING_REVIEW_COUNT must be an integer from 0 to 6"
+  exit 1
+fi
+
 echo "Applying branch protection to ${REPO}:${BRANCH}"
+echo "Required approving review count: ${REQUIRED_APPROVING_REVIEW_COUNT}"
 
 gh api \
   --method PUT \
   -H "Accept: application/vnd.github+json" \
   "/repos/${REPO}/branches/${BRANCH}/protection" \
-  --input - <<'JSON'
+  --input - <<JSON
 {
   "required_status_checks": {
     "strict": true,
@@ -37,7 +44,7 @@ gh api \
   "required_pull_request_reviews": {
     "dismiss_stale_reviews": true,
     "require_code_owner_reviews": false,
-    "required_approving_review_count": 1,
+    "required_approving_review_count": ${REQUIRED_APPROVING_REVIEW_COUNT},
     "require_last_push_approval": false
   },
   "restrictions": null,
