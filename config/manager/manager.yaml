@@ -30,7 +30,7 @@ spec:
         control-plane: controller-manager
         app.kubernetes.io/name: certificate-job-operator
     spec:
-      # TODO(user): Uncomment the following code to configure the nodeAffinity expression
+      # Uncomment the following code to configure the nodeAffinity expression
       # according to the platforms which are supported by your solution.
       # It is considered best practice to support multiple architectures. You can
       # build your manager image using the makefile target docker-buildx.
@@ -63,7 +63,7 @@ spec:
         args:
           - --leader-elect
           - --health-probe-bind-address=:8081
-        image: controller:latest
+        image: controller:v0.0.0
         name: manager
         ports: []
         securityContext:
@@ -84,14 +84,16 @@ spec:
             port: 8081
           initialDelaySeconds: 5
           periodSeconds: 10
-        # TODO(user): Configure the resources accordingly based on the project requirements.
+        # Configure these resources according to the project requirements.
         # More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
         resources:
           limits:
             cpu: 500m
+            ephemeral-storage: 128Mi
             memory: 128Mi
           requests:
             cpu: 10m
+            ephemeral-storage: 64Mi
             memory: 64Mi
         volumeMounts: []
       volumes: []

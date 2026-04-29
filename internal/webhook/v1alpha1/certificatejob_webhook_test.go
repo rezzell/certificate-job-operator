@@ -24,7 +24,6 @@ import (
 	. "github.com/onsi/gomega"
 
 	certificatesv1alpha1 "github.com/russell/certificate-job-operator/api/v1alpha1"
-	// TODO (user): Add any additional imports if needed
 )
 
 var _ = Describe("CertificateJob Webhook", func() {
@@ -44,15 +43,9 @@ var _ = Describe("CertificateJob Webhook", func() {
 		Expect(defaulter).NotTo(BeNil(), "Expected defaulter to be initialized")
 		Expect(oldObj).NotTo(BeNil(), "Expected oldObj to be initialized")
 		Expect(obj).NotTo(BeNil(), "Expected obj to be initialized")
-		// TODO (user): Add any setup logic common to all tests
-	})
-
-	AfterEach(func() {
-		// TODO (user): Add any teardown logic common to all tests
 	})
 
 	Context("When creating CertificateJob under Defaulting Webhook", func() {
-		// TODO (user): Add logic for defaulting webhooks
 		// Example:
 		// It("Should apply defaults when a required field is empty", func() {
 		//     By("simulating a scenario where defaults should be applied")
@@ -65,7 +58,6 @@ var _ = Describe("CertificateJob Webhook", func() {
 	})
 
 	Context("When creating or updating CertificateJob under Validating Webhook", func() {
-		// TODO (user): Add logic for validating webhooks
 		// Example:
 		// It("Should deny creation if a required field is missing", func() {
 		//     By("simulating an invalid creation scenario")

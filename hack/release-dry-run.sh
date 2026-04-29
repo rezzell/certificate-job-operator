@@ -28,6 +28,7 @@ dispatch() {
     -f version="$VERSION" \
     -f push_artifacts=false \
     -f force_release=true
+  return 0
 }
 
 dispatch ".github/workflows/release-operator.yml"
