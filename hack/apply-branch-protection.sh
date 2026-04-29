@@ -31,13 +31,14 @@ gh api \
   "required_status_checks": {
     "strict": true,
     "contexts": [
-      "Lint / Lint (Ubuntu)",
-      "Tests / Tests (Ubuntu)",
-      "E2E Tests / E2E Tests (Ubuntu)",
-      "Security / govulncheck",
-      "Security / gosec",
+      "Lint (Ubuntu)",
+      "Tests (Ubuntu)",
+      "E2E Tests (Ubuntu)",
+      "govulncheck",
+      "gosec",
+      "SonarCloud Scan",
       "SonarCloud Code Analysis",
-      "Workflow Lint / Validate GitHub Workflows"
+      "Validate GitHub Workflows"
     ]
   },
   "enforce_admins": true,
