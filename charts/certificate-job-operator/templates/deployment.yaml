@@ -1,3 +1,11 @@
+{{- $watchNamespace := trim .Values.watchNamespace -}}
+{{- $watchNamespaceIsList := contains "," $watchNamespace -}}
+{{- if and (not .Values.rbac.clusterScoped) $watchNamespaceIsList }}
+{{- fail "values.watchNamespace with multiple namespaces requires rbac.clusterScoped=true" }}
+{{- end }}
+{{- if and (not .Values.rbac.clusterScoped) $watchNamespace (ne $watchNamespace .Release.Namespace) }}
+{{- fail (printf "values.watchNamespace=%q requires rbac.clusterScoped=true or must match release namespace %q" $watchNamespace .Release.Namespace) }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -89,11 +97,11 @@ spec:
               name: webhook-certs
               readOnly: true
           {{- end }}
-          {{- if or .Values.watchNamespace (not .Values.rbac.clusterScoped) }}
+          {{- if or $watchNamespace (not .Values.rbac.clusterScoped) }}
           env:
             - name: WATCH_NAMESPACE
-              {{- if .Values.watchNamespace }}
-              value: {{ .Values.watchNamespace | quote }}
+              {{- if $watchNamespace }}
+              value: {{ $watchNamespace | quote }}
               {{- else }}
               valueFrom:
                 fieldRef:

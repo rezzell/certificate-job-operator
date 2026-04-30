@@ -218,7 +218,20 @@ func main() {
 }
 
 func watchNamespaceCacheConfig() map[string]cache.Config {
-	watchNamespaces := strings.TrimSpace(os.Getenv("WATCH_NAMESPACE"))
+	if watchConfig := parseWatchNamespaces(os.Getenv("WATCH_NAMESPACE")); len(watchConfig) > 0 {
+		return watchConfig
+	}
+
+	podNamespace := strings.TrimSpace(os.Getenv("POD_NAMESPACE"))
+	if podNamespace == "" {
+		return nil
+	}
+
+	return map[string]cache.Config{podNamespace: {}}
+}
+
+func parseWatchNamespaces(raw string) map[string]cache.Config {
+	watchNamespaces := strings.TrimSpace(raw)
 	if watchNamespaces == "" {
 		return nil
 	}

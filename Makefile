@@ -218,10 +218,20 @@ uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified 
 .PHONY: deploy
 deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
+	kustomization_path="$(CURDIR)/config/default/kustomization.yaml"; \
+	tmp_file="$$(mktemp)"; \
+	cp "$$kustomization_path" "$$tmp_file"; \
+	trap 'cp "$$tmp_file" "$$kustomization_path"; rm -f "$$tmp_file"' EXIT; \
+	( cd config/default && $(KUSTOMIZE) edit set namespace $(NAMESPACE) ); \
 	$(KUSTOMIZE) build config/default | $(KUBECTL) apply -f -
 
 .PHONY: undeploy
 undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
+	kustomization_path="$(CURDIR)/config/default/kustomization.yaml"; \
+	tmp_file="$$(mktemp)"; \
+	cp "$$kustomization_path" "$$tmp_file"; \
+	trap 'cp "$$tmp_file" "$$kustomization_path"; rm -f "$$tmp_file"' EXIT; \
+	( cd config/default && $(KUSTOMIZE) edit set namespace $(NAMESPACE) ); \
 	$(KUSTOMIZE) build config/default | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
 
 ##@ Dependencies
@@ -238,6 +248,7 @@ KUSTOMIZE ?= $(LOCALBIN)/kustomize
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
+NAMESPACE ?= certificate-job-operator-system
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.6.0
@@ -248,6 +259,35 @@ ENVTEST_VERSION ?= $(shell go list -m -f "{{ .Version }}" sigs.k8s.io/controller
 ENVTEST_K8S_VERSION ?= $(shell go list -m -f "{{ .Version }}" k8s.io/api | awk -F'[v.]' '{printf "1.%d", $$3}')
 GOLANGCI_LINT_VERSION ?= v2.1.0
 KIND_VERSION ?= v0.30.0
+OPM_VERSION ?= v1.55.0
+HOST_OS ?= $(shell go env GOOS)
+HOST_ARCH ?= $(shell go env GOARCH)
+
+OPERATOR_SDK_VERSION_KEY := $(subst .,_,$(patsubst v%,%,$(OPERATOR_SDK_VERSION)))
+OPM_VERSION_KEY := $(subst .,_,$(patsubst v%,%,$(OPM_VERSION)))
+OPERATOR_SDK_ASSET ?= operator-sdk_$(HOST_OS)_$(HOST_ARCH)
+OPM_ASSET ?= $(HOST_OS)-$(HOST_ARCH)-opm
+OPERATOR_SDK_DOWNLOAD_URL ?= https://github.com/operator-framework/operator-sdk/releases/download/$(OPERATOR_SDK_VERSION)/$(OPERATOR_SDK_ASSET)
+OPM_DOWNLOAD_URL ?= https://github.com/operator-framework/operator-registry/releases/download/$(OPM_VERSION)/$(OPM_ASSET)
+
+# Hashes from official release checksums:
+# - https://github.com/operator-framework/operator-sdk/releases/download/v1.42.2/checksums.txt
+# - https://github.com/operator-framework/operator-registry/releases/download/v1.55.0/checksums.txt
+OPERATOR_SDK_SHA256_1_42_2_darwin_amd64 ?= 0293b988886b5a2a82b6c141c46293915f0c67cae43cabdb36a0ffdf8af042b6
+OPERATOR_SDK_SHA256_1_42_2_darwin_arm64 ?= 8f7c19e35ce6ad4069502fcb66ea89548d0173ff8a02b253b0be4ad4909eeaf6
+OPERATOR_SDK_SHA256_1_42_2_linux_amd64 ?= 8847c45ea994ac62b3cd134f77934df2a16a56a39a634eb988e0d1db99d1a413
+OPERATOR_SDK_SHA256_1_42_2_linux_arm64 ?= 5fbb4c9f1eb3d8f6e9f870bfb48160842b9b541ce644d602282ef86578fedc1c
+OPERATOR_SDK_SHA256_1_42_2_linux_ppc64le ?= 52c2b3198ff24c89382b6e333cd021fe3948024a4db33f3b2e8d269c7a1a116d
+OPERATOR_SDK_SHA256_1_42_2_linux_s390x ?= 21cb1c99a7078b0b50ac216a2d414b42b730f5a9f1cc706cbc241f458645a8d1
+OPM_SHA256_1_55_0_darwin_amd64 ?= 69d13eab1faf88031ce3cdcc91aa0a430e1e15f3f96294660a0e29cba17751eb
+OPM_SHA256_1_55_0_darwin_arm64 ?= 7b8f4e904888f4551289793d0a5c43dfb37985ee1ad6d1b6db2d1859e60d3f37
+OPM_SHA256_1_55_0_linux_amd64 ?= eed05ce8d6c21bb4acf4683f270ea7fd69ecf492cb58459c5689575c80800921
+OPM_SHA256_1_55_0_linux_arm64 ?= 4048b965d25a96bdaca5c2ca4e45418ba286391f960708e774760c7abfa509ad
+OPM_SHA256_1_55_0_linux_ppc64le ?= 03309c998a00251744f80f3e0a2d16704b03c87b01c3a4f04cb4d89cb1d19a71
+OPM_SHA256_1_55_0_linux_s390x ?= 8aca290bb243f0095d7e60603e250638725227b6f3ff207c0a3a038fe451c351
+
+OPERATOR_SDK_SHA256 ?= $(OPERATOR_SDK_SHA256_$(OPERATOR_SDK_VERSION_KEY)_$(HOST_OS)_$(HOST_ARCH))
+OPM_SHA256 ?= $(OPM_SHA256_$(OPM_VERSION_KEY)_$(HOST_OS)_$(HOST_ARCH))
 
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
@@ -314,8 +354,16 @@ ifeq (, $(shell which operator-sdk 2>/dev/null))
 	@{ \
 	set -e ;\
 	mkdir -p $(dir $(OPERATOR_SDK)) ;\
-	OS=$(shell go env GOOS) && ARCH=$(shell go env GOARCH) && \
-	curl -sSLo $(OPERATOR_SDK) https://github.com/operator-framework/operator-sdk/releases/download/$(OPERATOR_SDK_VERSION)/operator-sdk_$${OS}_$${ARCH} ;\
+	if [ -z "$(OPERATOR_SDK_SHA256)" ]; then \
+		echo "Error: missing operator-sdk checksum for version $(OPERATOR_SDK_VERSION) and platform $(HOST_OS)/$(HOST_ARCH)." ;\
+		exit 1 ;\
+	fi ;\
+	curl -sSLo $(OPERATOR_SDK) $(OPERATOR_SDK_DOWNLOAD_URL) ;\
+	if command -v sha256sum >/dev/null 2>&1; then \
+		echo "$(OPERATOR_SDK_SHA256)  $(OPERATOR_SDK)" | sha256sum -c - ;\
+	else \
+		echo "$(OPERATOR_SDK_SHA256)  $(OPERATOR_SDK)" | shasum -a 256 -c - ;\
+	fi ;\
 	chmod +x $(OPERATOR_SDK) ;\
 	}
 else
@@ -346,8 +394,16 @@ ifeq (,$(shell which opm 2>/dev/null))
 	@{ \
 	set -e ;\
 	mkdir -p $(dir $(OPM)) ;\
-	OS=$(shell go env GOOS) && ARCH=$(shell go env GOARCH) && \
-	curl -sSLo $(OPM) https://github.com/operator-framework/operator-registry/releases/download/v1.55.0/$${OS}-$${ARCH}-opm ;\
+	if [ -z "$(OPM_SHA256)" ]; then \
+		echo "Error: missing opm checksum for version $(OPM_VERSION) and platform $(HOST_OS)/$(HOST_ARCH)." ;\
+		exit 1 ;\
+	fi ;\
+	curl -sSLo $(OPM) $(OPM_DOWNLOAD_URL) ;\
+	if command -v sha256sum >/dev/null 2>&1; then \
+		echo "$(OPM_SHA256)  $(OPM)" | sha256sum -c - ;\
+	else \
+		echo "$(OPM_SHA256)  $(OPM)" | shasum -a 256 -c - ;\
+	fi ;\
 	chmod +x $(OPM) ;\
 	}
 else

@@ -20,6 +20,10 @@ limitations under the License.
 package v1alpha1
 
 import (
+	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
@@ -27,56 +31,59 @@ import (
 )
 
 var _ = Describe("CertificateJob Webhook", func() {
-	var (
-		obj       *certificatesv1alpha1.CertificateJob
-		oldObj    *certificatesv1alpha1.CertificateJob
-		validator CertificateJobCustomValidator
-		defaulter CertificateJobCustomDefaulter
-	)
+	newValidCertificateJob := func() *certificatesv1alpha1.CertificateJob {
+		return &certificatesv1alpha1.CertificateJob{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "cjob-webhook-",
+				Namespace:    "default",
+			},
+			Spec: certificatesv1alpha1.CertificateJobSpec{
+				Jobs: []certificatesv1alpha1.CertificateJobTemplate{
+					{
+						Name: "job-a",
+						Template: batchv1.JobSpec{
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
+									Containers: []corev1.Container{{
+										Name:  "runner",
+										Image: "busybox:1.36",
+									}},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+	}
 
-	BeforeEach(func() {
-		obj = &certificatesv1alpha1.CertificateJob{}
-		oldObj = &certificatesv1alpha1.CertificateJob{}
-		validator = CertificateJobCustomValidator{}
-		Expect(validator).NotTo(BeNil(), "Expected validator to be initialized")
-		defaulter = CertificateJobCustomDefaulter{}
-		Expect(defaulter).NotTo(BeNil(), "Expected defaulter to be initialized")
-		Expect(oldObj).NotTo(BeNil(), "Expected oldObj to be initialized")
-		Expect(obj).NotTo(BeNil(), "Expected obj to be initialized")
+	It("admits a valid CertificateJob", func() {
+		obj := newValidCertificateJob()
+
+		Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 	})
 
-	Context("When creating CertificateJob under Defaulting Webhook", func() {
-		// Example:
-		// It("Should apply defaults when a required field is empty", func() {
-		//     By("simulating a scenario where defaults should be applied")
-		//     obj.SomeFieldWithDefault = ""
-		//     By("calling the Default method to apply defaults")
-		//     defaulter.Default(ctx, obj)
-		//     By("checking that the default values are set")
-		//     Expect(obj.SomeFieldWithDefault).To(Equal("default_value"))
-		// })
+	It("rejects invalid security settings", func() {
+		obj := newValidCertificateJob()
+		obj.Spec.Jobs[0].Template.Template.Spec.HostNetwork = true
+
+		err := k8sClient.Create(ctx, obj)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("violates security policy"))
+		Expect(err.Error()).To(ContainSubstring("hostNetwork is not allowed"))
 	})
 
-	Context("When creating or updating CertificateJob under Validating Webhook", func() {
-		// Example:
-		// It("Should deny creation if a required field is missing", func() {
-		//     By("simulating an invalid creation scenario")
-		//     obj.SomeRequiredField = ""
-		//     Expect(validator.ValidateCreate(ctx, obj)).Error().To(HaveOccurred())
-		// })
-		//
-		// It("Should admit creation if all required fields are present", func() {
-		//     By("simulating an invalid creation scenario")
-		//     obj.SomeRequiredField = "valid_value"
-		//     Expect(validator.ValidateCreate(ctx, obj)).To(BeNil())
-		// })
-		//
-		// It("Should validate updates correctly", func() {
-		//     By("simulating a valid update scenario")
-		//     oldObj.SomeRequiredField = "updated_value"
-		//     obj.SomeRequiredField = "updated_value"
-		//     Expect(validator.ValidateUpdate(ctx, oldObj, obj)).To(BeNil())
-		// })
-	})
+	It("defaults job security settings during admission", func() {
+		obj := newValidCertificateJob()
 
+		Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+		Expect(obj.Spec.JobTTLSecondsAfterFinished).NotTo(BeNil())
+		Expect(*obj.Spec.JobTTLSecondsAfterFinished).To(Equal(int32(3600)))
+		jobSpec := obj.Spec.Jobs[0].Template
+		Expect(jobSpec.TTLSecondsAfterFinished).NotTo(BeNil())
+		Expect(*jobSpec.TTLSecondsAfterFinished).To(Equal(int32(3600)))
+		Expect(jobSpec.Template.Spec.AutomountServiceAccountToken).NotTo(BeNil())
+		Expect(*jobSpec.Template.Spec.AutomountServiceAccountToken).To(BeFalse())
+	})
 })

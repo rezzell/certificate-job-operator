@@ -79,7 +79,7 @@ metadata:
         }
       ]
     capabilities: Basic Install
-    createdAt: "2026-04-28T05:05:22Z"
+    createdAt: "2026-04-30T04:25:47Z"
     operators.operatorframework.io/builder: operator-sdk-v1.42.2
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v4
   name: certificate-job-operator.v0.1.0
@@ -142,7 +142,17 @@ spec:
                 - --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs
                 command:
                 - /manager
-                image: rezzell.com/certificate-job-operator:v0.1.0
+                env:
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      apiVersion: v1
+                      fieldPath: metadata.namespace
+                - name: WATCH_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.annotations['olm.targetNamespaces']
+                image: ghcr.io/example/certificate-job-operator:v0.1.0
                 livenessProbe:
                   httpGet:
                     path: /healthz
@@ -163,9 +173,11 @@ spec:
                 resources:
                   limits:
                     cpu: 500m
+                    ephemeral-storage: 128Mi
                     memory: 128Mi
                   requests:
                     cpu: 10m
+                    ephemeral-storage: 64Mi
                     memory: 64Mi
                 securityContext:
                   allowPrivilegeEscalation: false

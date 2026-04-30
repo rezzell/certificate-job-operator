@@ -16,13 +16,15 @@ serviceAccount:
 
 rbac:
   create: true
-  # Secure default: namespace-scoped permissions.
-  # Set true only when cluster owners explicitly want cluster-wide watch and access.
+  # Secure default: namespace-scoped permissions in the release namespace.
+  # Must be true to watch multiple namespaces or all namespaces.
   clusterScoped: false
 
-# Set to a comma-separated namespace list (e.g. "team-a,team-b") to scope the controller.
-# Empty + rbac.clusterScoped=false defaults to the release namespace.
-# Empty + rbac.clusterScoped=true watches all namespaces.
+# Watch scope for controller-runtime cache.
+# - Empty + rbac.clusterScoped=false: watch only the release namespace.
+# - Empty + rbac.clusterScoped=true: watch all namespaces.
+# - Single namespace: allowed when rbac.clusterScoped=true, or when it equals release namespace.
+# - Multiple namespaces (comma-separated): requires rbac.clusterScoped=true.
 watchNamespace: ""
 
 leaderElection:
