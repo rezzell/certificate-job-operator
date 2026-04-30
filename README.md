@@ -33,6 +33,72 @@ Security defaults:
 
 See sample: `config/samples/certificates_v1alpha1_certificatejob.yaml`.
 
+## Workflow Semantics
+
+### Node phases and workflow phase derivation
+
+Each `status.observedCertificates[]` entry tracks one certificate run and includes per-node state in `nodes[]`.
+
+- Node `Pending`: initial state, waiting for dependencies and available parallelism.
+- Node `Running`: set when the node Job is created or observed active.
+- Node `Succeeded`: Job has `Complete=True`.
+- Node `Failed`: Job has `Failed=True` or the previously created Job is missing.
+- Node `Skipped`: controller marked the node skipped due to failure policy.
+
+Terminal node phases are `Succeeded`, `Failed`, and `Skipped`.
+
+Workflow (`CertificateExecutionState.phase`) is derived from node phases with this precedence:
+
+1. `Failed` if any node is `Failed`
+2. `Running` if none failed and any node is `Running`
+3. `Pending` if none failed/running and any node is `Pending`
+4. `Succeeded` if all nodes are terminal (`Succeeded` or `Skipped`)
+
+### Failure policy behavior
+
+When a node fails, policy is applied only to `Pending` nodes. Already `Running` nodes are not cancelled.
+
+Example DAG for the table below:
+
+- `A -> B`
+- `A -> C`
+- `D` (independent)
+
+Assume `A` fails while `B`, `C`, and `D` are still `Pending`.
+
+| Policy | Effect on pending nodes after failure | Example outcome |
+| --- | --- | --- |
+| `StopDownstream` (default) | Skips all remaining `Pending` nodes, regardless of dependency. | `B`, `C`, `D` become `Skipped`. |
+| `ContinueIndependent` | Skips only descendants of failed nodes. Independent branches continue. | `B`, `C` become `Skipped`; `D` can still run. |
+| `BestEffort` | Skips nothing. Failed dependencies are treated as satisfied for scheduling. | `B`, `C`, `D` can still run (subject to DAG/parallelism). |
+
+### Rerun triggers and in-progress input changes
+
+The controller computes `status.observedCertificates[].inputHash` from:
+
+- Certificate spec, status, and generation
+- Referenced Secret type and data
+- Workflow-spec hash
+
+The workflow-spec hash includes `certificateSelector`, `jobs`, `workflow`, `parallelism`, `jobTTLSecondsAfterFinished`, and `failurePolicy`.
+
+Rerun rules:
+
+- No previous hash: start a run.
+- Same hash as current state: no rerun.
+- Different hash and current run is terminal: start a new run (`RunID` is the first 12 chars of the new hash) and reset node states to `Pending`.
+- Different hash while run is non-terminal: current run continues unchanged; controller records a deferral message and applies the new input only after the current run reaches terminal phase.
+
+If inputs change multiple times during one active run, intermediate versions are not queued as separate runs; the next run is based on the latest observed input when the active run completes.
+
+### Overlap, sequencing, guarantees, and limits
+
+- Per certificate, the controller tracks one active run state at a time (no overlapping runs for the same certificate).
+- Different certificates can run concurrently.
+- Within a certificate, node creation respects DAG dependencies plus `spec.parallelism`.
+- Node Jobs are not preemptively cancelled when inputs change or when `StopDownstream`/`ContinueIndependent` skips pending nodes.
+- Failed nodes are not retried within the same run; a new run requires a hash-changing input update (certificate/secret/workflow-spec change).
+
 ## Tenant RBAC and Broker Egress
 
 Grant namespace owners permission to manage `CertificateJob` in a namespace:
