@@ -78,7 +78,7 @@ func Run(cmd *exec.Cmd) (string, error) {
 // InstallPrometheusOperator installs the prometheus Operator to be used to export the enabled metrics.
 func InstallPrometheusOperator() error {
 	url := fmt.Sprintf(prometheusOperatorURL, prometheusOperatorVersion)
-	return runWithRetry(manifestRetryAttempts, manifestRetryDelay, func() *exec.Cmd {
+	return runWithRetry(func() *exec.Cmd {
 		return exec.Command("kubectl", "apply", "-f", url)
 	})
 }
@@ -86,7 +86,7 @@ func InstallPrometheusOperator() error {
 // UninstallPrometheusOperator uninstalls the prometheus
 func UninstallPrometheusOperator() {
 	url := fmt.Sprintf(prometheusOperatorURL, prometheusOperatorVersion)
-	err := runWithRetry(manifestRetryAttempts, manifestRetryDelay, func() *exec.Cmd {
+	err := runWithRetry(func() *exec.Cmd {
 		return exec.Command("kubectl", "delete", "-f", url)
 	})
 	if err != nil {
@@ -124,7 +124,7 @@ func IsPrometheusCRDsInstalled() bool {
 // UninstallCertManager uninstalls the cert manager
 func UninstallCertManager() {
 	url := fmt.Sprintf(certmanagerURLTmpl, certmanagerVersion)
-	err := runWithRetry(manifestRetryAttempts, manifestRetryDelay, func() *exec.Cmd {
+	err := runWithRetry(func() *exec.Cmd {
 		return exec.Command("kubectl", "delete", "-f", url)
 	})
 	if err != nil {
@@ -135,7 +135,7 @@ func UninstallCertManager() {
 // InstallCertManager installs the cert manager bundle.
 func InstallCertManager() error {
 	url := fmt.Sprintf(certmanagerURLTmpl, certmanagerVersion)
-	if err := runWithRetry(manifestRetryAttempts, manifestRetryDelay, func() *exec.Cmd {
+	if err := runWithRetry(func() *exec.Cmd {
 		return exec.Command("kubectl", "apply", "-f", url)
 	}); err != nil {
 		return err
@@ -300,17 +300,17 @@ func uncommentCodeWithWriter(filename, target, prefix string, writerFactory func
 	return nil
 }
 
-func runWithRetry(attempts int, delay time.Duration, cmdFactory func() *exec.Cmd) error {
+func runWithRetry(cmdFactory func() *exec.Cmd) error {
 	var err error
-	for attempt := 1; attempt <= attempts; attempt++ {
+	for attempt := 1; attempt <= manifestRetryAttempts; attempt++ {
 		_, err = Run(cmdFactory())
 		if err == nil {
 			return nil
 		}
-		if attempt < attempts {
+		if attempt < manifestRetryAttempts {
 			_, _ = fmt.Fprintf(GinkgoWriter, "retrying external manifest command (%d/%d): %v\n",
-				attempt+1, attempts, err)
-			time.Sleep(delay)
+				attempt+1, manifestRetryAttempts, err)
+			time.Sleep(manifestRetryDelay)
 		}
 	}
 
