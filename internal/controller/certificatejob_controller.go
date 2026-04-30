@@ -398,11 +398,10 @@ func (r *CertificateJobReconciler) reconcileCertificateRun(
 	parallelism := requestedParallelism(cjob)
 	availableSlots := int(parallelism) - activeCount
 	if availableSlots > 0 {
-		scheduled, err := r.scheduleRunnableNodes(ctx, cjob, certificate, state, deps, nodes, availableSlots, now)
+		_, err := r.scheduleRunnableNodes(ctx, cjob, certificate, state, deps, nodes, availableSlots, now)
 		if err != nil {
 			return true, false, err
 		}
-		activeCount += scheduled
 	}
 
 	state.Phase = deriveWorkflowPhase(state)
