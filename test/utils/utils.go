@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2" // nolint:revive,staticcheck
 )
@@ -38,14 +39,17 @@ const (
 	writeOutputError = "failed to write to output: %w"
 )
 
-var (
-	bufferWrite = func(buf *bytes.Buffer, p []byte) (int, error) {
-		return buf.Write(p)
-	}
+type outputWriter interface {
+	Write(p []byte) (int, error)
+	WriteString(s string) (int, error)
+	Bytes() []byte
+}
 
-	bufferWriteString = func(buf *bytes.Buffer, s string) (int, error) {
-		return buf.WriteString(s)
-	}
+const (
+	manifestRetryAttempts = 3
+	manifestRetryDelay    = 2 * time.Second
+	caBundleWaitAttempts  = 30
+	caBundleWaitDelay     = 2 * time.Second
 )
 
 func warnError(err error) {
@@ -54,12 +58,11 @@ func warnError(err error) {
 
 // Run executes the provided command within this context
 func Run(cmd *exec.Cmd) (string, error) {
-	dir, _ := GetProjectDir()
-	cmd.Dir = dir
-
-	if err := os.Chdir(cmd.Dir); err != nil {
-		_, _ = fmt.Fprintf(GinkgoWriter, "chdir dir: %q\n", err)
+	dir, err := GetProjectDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve project directory: %w", err)
 	}
+	cmd.Dir = dir
 
 	cmd.Env = append(os.Environ(), "GO111MODULE=on")
 	command := strings.Join(cmd.Args, " ")
@@ -75,16 +78,18 @@ func Run(cmd *exec.Cmd) (string, error) {
 // InstallPrometheusOperator installs the prometheus Operator to be used to export the enabled metrics.
 func InstallPrometheusOperator() error {
 	url := fmt.Sprintf(prometheusOperatorURL, prometheusOperatorVersion)
-	cmd := exec.Command("kubectl", "create", "-f", url)
-	_, err := Run(cmd)
-	return err
+	return runWithRetry(manifestRetryAttempts, manifestRetryDelay, func() *exec.Cmd {
+		return exec.Command("kubectl", "apply", "-f", url)
+	})
 }
 
 // UninstallPrometheusOperator uninstalls the prometheus
 func UninstallPrometheusOperator() {
 	url := fmt.Sprintf(prometheusOperatorURL, prometheusOperatorVersion)
-	cmd := exec.Command("kubectl", "delete", "-f", url)
-	if _, err := Run(cmd); err != nil {
+	err := runWithRetry(manifestRetryAttempts, manifestRetryDelay, func() *exec.Cmd {
+		return exec.Command("kubectl", "delete", "-f", url)
+	})
+	if err != nil {
 		warnError(err)
 	}
 }
@@ -119,8 +124,10 @@ func IsPrometheusCRDsInstalled() bool {
 // UninstallCertManager uninstalls the cert manager
 func UninstallCertManager() {
 	url := fmt.Sprintf(certmanagerURLTmpl, certmanagerVersion)
-	cmd := exec.Command("kubectl", "delete", "-f", url)
-	if _, err := Run(cmd); err != nil {
+	err := runWithRetry(manifestRetryAttempts, manifestRetryDelay, func() *exec.Cmd {
+		return exec.Command("kubectl", "delete", "-f", url)
+	})
+	if err != nil {
 		warnError(err)
 	}
 }
@@ -128,20 +135,42 @@ func UninstallCertManager() {
 // InstallCertManager installs the cert manager bundle.
 func InstallCertManager() error {
 	url := fmt.Sprintf(certmanagerURLTmpl, certmanagerVersion)
-	cmd := exec.Command("kubectl", "apply", "-f", url)
-	if _, err := Run(cmd); err != nil {
+	if err := runWithRetry(manifestRetryAttempts, manifestRetryDelay, func() *exec.Cmd {
+		return exec.Command("kubectl", "apply", "-f", url)
+	}); err != nil {
 		return err
 	}
-	// Wait for cert-manager-webhook to be ready, which can take time if cert-manager
-	// was re-installed after uninstalling on a cluster.
-	cmd = exec.Command("kubectl", "wait", "deployment.apps/cert-manager-webhook",
-		"--for", "condition=Available",
-		"--namespace", "cert-manager",
-		"--timeout", "5m",
-	)
+	// Wait for cert-manager components and CA injection readiness before creating
+	// cert-manager resources in other manifests.
+	for _, deploymentName := range []string{
+		"cert-manager",
+		"cert-manager-cainjector",
+		"cert-manager-webhook",
+	} {
+		cmd := exec.Command("kubectl", "wait", fmt.Sprintf("deployment.apps/%s", deploymentName),
+			"--for", "condition=Available",
+			"--namespace", "cert-manager",
+			"--timeout", "5m",
+		)
+		if _, err := Run(cmd); err != nil {
+			return err
+		}
+	}
 
-	_, err := Run(cmd)
-	return err
+	if err := waitForCABundleInjection(
+		"validatingwebhookconfigurations.admissionregistration.k8s.io",
+		"cert-manager-webhook",
+	); err != nil {
+		return err
+	}
+	if err := waitForCABundleInjection(
+		"mutatingwebhookconfigurations.admissionregistration.k8s.io",
+		"cert-manager-webhook",
+	); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // IsCertManagerCRDsInstalled checks if any Cert Manager CRDs are installed
@@ -216,6 +245,12 @@ func GetProjectDir() (string, error) {
 // UncommentCode searches for target in the file and remove the comment prefix
 // of the target content. The target content may span multiple lines.
 func UncommentCode(filename, target, prefix string) error {
+	return uncommentCodeWithWriter(filename, target, prefix, func() outputWriter {
+		return new(bytes.Buffer)
+	})
+}
+
+func uncommentCodeWithWriter(filename, target, prefix string, writerFactory func() outputWriter) error {
 	// false positive
 	// nolint:gosec
 	content, err := os.ReadFile(filename)
@@ -229,8 +264,8 @@ func UncommentCode(filename, target, prefix string) error {
 		return fmt.Errorf("unable to find the code %q to be uncomment", target)
 	}
 
-	out := new(bytes.Buffer)
-	_, err = bufferWrite(out, content[:idx])
+	out := writerFactory()
+	_, err = out.Write(content[:idx])
 	if err != nil {
 		return fmt.Errorf(writeOutputError, err)
 	}
@@ -240,19 +275,19 @@ func UncommentCode(filename, target, prefix string) error {
 		return nil
 	}
 	for {
-		if _, err = bufferWriteString(out, strings.TrimPrefix(scanner.Text(), prefix)); err != nil {
+		if _, err = out.WriteString(strings.TrimPrefix(scanner.Text(), prefix)); err != nil {
 			return fmt.Errorf(writeOutputError, err)
 		}
 		// Avoid writing a newline in case the previous line was the last in target.
 		if !scanner.Scan() {
 			break
 		}
-		if _, err = bufferWriteString(out, "\n"); err != nil {
+		if _, err = out.WriteString("\n"); err != nil {
 			return fmt.Errorf(writeOutputError, err)
 		}
 	}
 
-	if _, err = bufferWrite(out, content[idx+len(target):]); err != nil {
+	if _, err = out.Write(content[idx+len(target):]); err != nil {
 		return fmt.Errorf(writeOutputError, err)
 	}
 
@@ -263,4 +298,47 @@ func UncommentCode(filename, target, prefix string) error {
 	}
 
 	return nil
+}
+
+func runWithRetry(attempts int, delay time.Duration, cmdFactory func() *exec.Cmd) error {
+	var err error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		_, err = Run(cmdFactory())
+		if err == nil {
+			return nil
+		}
+		if attempt < attempts {
+			_, _ = fmt.Fprintf(GinkgoWriter, "retrying external manifest command (%d/%d): %v\n",
+				attempt+1, attempts, err)
+			time.Sleep(delay)
+		}
+	}
+
+	return err
+}
+
+func waitForCABundleInjection(resourceType, resourceName string) error {
+	var err error
+	for attempt := 1; attempt <= caBundleWaitAttempts; attempt++ {
+		cmd := exec.Command("kubectl", "get", resourceType, resourceName,
+			"-o", "jsonpath={.webhooks[0].clientConfig.caBundle}")
+		output, cmdErr := Run(cmd)
+		if cmdErr == nil && strings.TrimSpace(output) != "" {
+			return nil
+		}
+
+		if cmdErr != nil {
+			err = cmdErr
+		} else {
+			err = fmt.Errorf("%s/%s caBundle has not been injected yet", resourceType, resourceName)
+		}
+
+		if attempt < caBundleWaitAttempts {
+			_, _ = fmt.Fprintf(GinkgoWriter, "waiting for CA bundle injection (%d/%d): %v\n",
+				attempt+1, caBundleWaitAttempts, err)
+			time.Sleep(caBundleWaitDelay)
+		}
+	}
+
+	return err
 }
