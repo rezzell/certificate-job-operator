@@ -133,7 +133,7 @@ var _ = BeforeSuite(func() {
 		}
 
 		return conn.Close()
-	}).Should(Succeed())
+	}, 30*time.Second, 250*time.Millisecond).Should(Succeed())
 })
 
 var _ = AfterSuite(func() {

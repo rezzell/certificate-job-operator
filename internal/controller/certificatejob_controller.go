@@ -46,6 +46,7 @@ import (
 	certmgrv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 
 	certificatesv1alpha1 "github.com/russell/certificate-job-operator/api/v1alpha1"
+	"github.com/russell/certificate-job-operator/internal/jobsecurity"
 )
 
 const (
@@ -99,13 +100,8 @@ func (r *CertificateJobReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 }
 
 func (r *CertificateJobReconciler) reconcileCertificateJob(ctx context.Context, certificateJob *certificatesv1alpha1.CertificateJob) (ctrl.Result, error) {
-	now := metav1.Now()
-
-	deps, reverseDeps, err := buildWorkflowGraph(certificateJob)
-	if err != nil {
-		setCondition(&certificateJob.Status.Conditions, conditionReady, metav1.ConditionFalse, "InvalidSpec", err.Error(), certificateJob.Generation)
-		setCondition(&certificateJob.Status.Conditions, conditionProgressing, metav1.ConditionFalse, "InvalidSpec", "reconciliation blocked by invalid spec", certificateJob.Generation)
-		setCondition(&certificateJob.Status.Conditions, conditionDegraded, metav1.ConditionTrue, "InvalidSpec", err.Error(), certificateJob.Generation)
+	workflowContext, ok := buildWorkflowContext(certificateJob)
+	if !ok {
 		return ctrl.Result{}, nil
 	}
 
@@ -117,115 +113,225 @@ func (r *CertificateJobReconciler) reconcileCertificateJob(ctx context.Context, 
 		return ctrl.Result{}, err
 	}
 
-	stateIndex := make(map[string]int, len(certificateJob.Status.ObservedCertificates))
-	for i := range certificateJob.Status.ObservedCertificates {
-		entry := certificateJob.Status.ObservedCertificates[i]
-		stateIndex[certificateKey(entry.Namespace, entry.Name)] = i
-	}
+	stateIndex := observedStateIndex(certificateJob)
 
 	matchedKeys := sets.New[string]()
-	needsRequeue := false
-	anyFailed := false
-	anyInProgress := false
+	progress := certificateWorkflowProgress{}
 
 	for i := range certificates {
 		cert := certificates[i]
 		certKey := certificateKey(cert.Namespace, cert.Name)
 		matchedKeys.Insert(certKey)
 
-		idx, ok := stateIndex[certKey]
-		if !ok {
-			certificateJob.Status.ObservedCertificates = append(certificateJob.Status.ObservedCertificates, certificatesv1alpha1.CertificateExecutionState{
-				Namespace: cert.Namespace,
-				Name:      cert.Name,
-				Phase:     certificatesv1alpha1.ExecutionPhasePending,
-			})
-			idx = len(certificateJob.Status.ObservedCertificates) - 1
-			stateIndex[certKey] = idx
-		}
-		state := &certificateJob.Status.ObservedCertificates[idx]
-
-		if cert.Spec.SecretName == "" {
-			state.SecretName = ""
-			state.Phase = certificatesv1alpha1.ExecutionPhaseFailed
-			state.Message = "certificate.spec.secretName is empty"
-			state.LastCompletedTime = &now
-			anyFailed = true
-			continue
-		}
-
-		secret := &corev1.Secret{}
-		if err := r.Get(ctx, types.NamespacedName{Namespace: cert.Namespace, Name: cert.Spec.SecretName}, secret); err != nil {
-			state.SecretName = cert.Spec.SecretName
-			state.Phase = certificatesv1alpha1.ExecutionPhaseFailed
-			state.Message = fmt.Sprintf("unable to read secret %s/%s: %v", cert.Namespace, cert.Spec.SecretName, err)
-			state.LastCompletedTime = &now
-			anyFailed = true
-			continue
-		}
-
-		inputHash, err := buildInputHash(&cert, secret)
-		if err != nil {
-			state.SecretName = cert.Spec.SecretName
-			state.Phase = certificatesv1alpha1.ExecutionPhaseFailed
-			state.Message = fmt.Sprintf("unable to calculate input hash: %v", err)
-			state.LastCompletedTime = &now
-			anyFailed = true
-			continue
-		}
-
-		if state.InputHash != inputHash {
-			state.SecretName = cert.Spec.SecretName
-			state.InputHash = inputHash
-			state.RunID = shortHash(inputHash, 12)
-			state.Phase = certificatesv1alpha1.ExecutionPhasePending
-			state.Message = ""
-			state.LastTriggeredTime = &now
-			state.LastCompletedTime = nil
-			state.Nodes = initializeNodeStates(certificateJob)
-		}
-
-		if isTerminalPhase(state.Phase) {
-			if state.Phase == certificatesv1alpha1.ExecutionPhaseFailed {
-				anyFailed = true
-			}
-			continue
-		}
-
-		running, failed, err := r.reconcileCertificateRun(ctx, certificateJob, &cert, state, deps, reverseDeps)
-		if err != nil {
-			state.Phase = certificatesv1alpha1.ExecutionPhaseFailed
-			state.Message = err.Error()
-			state.LastCompletedTime = &now
-			anyFailed = true
-			continue
-		}
-		if running {
-			anyInProgress = true
-			needsRequeue = true
-		}
-		if failed || state.Phase == certificatesv1alpha1.ExecutionPhaseFailed {
-			anyFailed = true
-		}
+		state := ensureObservedCertificateState(certificateJob, stateIndex, cert)
+		progress.merge(r.reconcileObservedCertificate(ctx, certificateJob, &cert, state, workflowContext))
 	}
 
-	filtered := make([]certificatesv1alpha1.CertificateExecutionState, 0, len(certificateJob.Status.ObservedCertificates))
+	certificateJob.Status.ObservedCertificates = filterObservedStates(certificateJob.Status.ObservedCertificates, matchedKeys)
+	applyCertificateJobConditions(certificateJob, len(certificates), progress)
+
+	if progress.needsRequeue {
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+	}
+	return ctrl.Result{}, nil
+}
+
+type workflowContext struct {
+	now              metav1.Time
+	workflowSpecHash string
+	deps             map[string][]string
+	reverseDeps      map[string][]string
+}
+
+type certificateWorkflowProgress struct {
+	needsRequeue  bool
+	anyFailed     bool
+	anyInProgress bool
+}
+
+func (p *certificateWorkflowProgress) merge(other certificateWorkflowProgress) {
+	p.needsRequeue = p.needsRequeue || other.needsRequeue
+	p.anyFailed = p.anyFailed || other.anyFailed
+	p.anyInProgress = p.anyInProgress || other.anyInProgress
+}
+
+func buildWorkflowContext(certificateJob *certificatesv1alpha1.CertificateJob) (workflowContext, bool) {
+	ctx := workflowContext{now: metav1.Now()}
+
+	workflowSpecHash, err := buildWorkflowSpecHash(certificateJob.Spec)
+	if err != nil {
+		applyInvalidSpecConditions(certificateJob, err)
+		return workflowContext{}, false
+	}
+	ctx.workflowSpecHash = workflowSpecHash
+
+	deps, reverseDeps, err := buildWorkflowGraph(certificateJob)
+	if err != nil {
+		applyInvalidSpecConditions(certificateJob, err)
+		return workflowContext{}, false
+	}
+	ctx.deps = deps
+	ctx.reverseDeps = reverseDeps
+	return ctx, true
+}
+
+func applyInvalidSpecConditions(certificateJob *certificatesv1alpha1.CertificateJob, err error) {
+	setCondition(&certificateJob.Status.Conditions, conditionReady, metav1.ConditionFalse, "InvalidSpec", err.Error(), certificateJob.Generation)
+	setCondition(&certificateJob.Status.Conditions, conditionProgressing, metav1.ConditionFalse, "InvalidSpec", "reconciliation blocked by invalid spec", certificateJob.Generation)
+	setCondition(&certificateJob.Status.Conditions, conditionDegraded, metav1.ConditionTrue, "InvalidSpec", err.Error(), certificateJob.Generation)
+}
+
+func observedStateIndex(certificateJob *certificatesv1alpha1.CertificateJob) map[string]int {
+	stateIndex := make(map[string]int, len(certificateJob.Status.ObservedCertificates))
 	for i := range certificateJob.Status.ObservedCertificates {
 		entry := certificateJob.Status.ObservedCertificates[i]
+		stateIndex[certificateKey(entry.Namespace, entry.Name)] = i
+	}
+	return stateIndex
+}
+
+func ensureObservedCertificateState(
+	certificateJob *certificatesv1alpha1.CertificateJob,
+	stateIndex map[string]int,
+	cert certmgrv1.Certificate,
+) *certificatesv1alpha1.CertificateExecutionState {
+	certKey := certificateKey(cert.Namespace, cert.Name)
+	idx, ok := stateIndex[certKey]
+	if !ok {
+		certificateJob.Status.ObservedCertificates = append(certificateJob.Status.ObservedCertificates, certificatesv1alpha1.CertificateExecutionState{
+			Namespace: cert.Namespace,
+			Name:      cert.Name,
+			Phase:     certificatesv1alpha1.ExecutionPhasePending,
+		})
+		idx = len(certificateJob.Status.ObservedCertificates) - 1
+		stateIndex[certKey] = idx
+	}
+	return &certificateJob.Status.ObservedCertificates[idx]
+}
+
+func (r *CertificateJobReconciler) reconcileObservedCertificate(
+	ctx context.Context,
+	cjob *certificatesv1alpha1.CertificateJob,
+	cert *certmgrv1.Certificate,
+	state *certificatesv1alpha1.CertificateExecutionState,
+	workflowCtx workflowContext,
+) certificateWorkflowProgress {
+	progress := certificateWorkflowProgress{}
+
+	if cert.Spec.SecretName == "" {
+		state.SecretName = ""
+		state.Phase = certificatesv1alpha1.ExecutionPhaseFailed
+		state.Message = "certificate.spec.secretName is empty"
+		state.LastCompletedTime = &workflowCtx.now
+		progress.anyFailed = true
+		return progress
+	}
+
+	secret := &corev1.Secret{}
+	if err := r.Get(ctx, types.NamespacedName{Namespace: cert.Namespace, Name: cert.Spec.SecretName}, secret); err != nil {
+		if !isTerminalPhase(state.Phase) {
+			state.SecretName = cert.Spec.SecretName
+			state.Phase = certificatesv1alpha1.ExecutionPhasePending
+			state.Message = fmt.Sprintf("waiting for readable secret %s/%s: %v", cert.Namespace, cert.Spec.SecretName, err)
+			state.LastCompletedTime = nil
+			progress.anyInProgress = true
+			progress.needsRequeue = true
+		}
+		return progress
+	}
+
+	inputHash, err := buildInputHash(cert, secret, workflowCtx.workflowSpecHash)
+	if err != nil {
+		if !isTerminalPhase(state.Phase) {
+			state.SecretName = cert.Spec.SecretName
+			state.Phase = certificatesv1alpha1.ExecutionPhasePending
+			state.Message = fmt.Sprintf("unable to calculate input hash: %v", err)
+			state.LastCompletedTime = nil
+			progress.anyInProgress = true
+			progress.needsRequeue = true
+		}
+		return progress
+	}
+
+	applyInputHashTransition(cjob, cert, state, inputHash, workflowCtx.now)
+	if isTerminalPhase(state.Phase) {
+		if state.Phase == certificatesv1alpha1.ExecutionPhaseFailed {
+			progress.anyFailed = true
+		}
+		return progress
+	}
+
+	running, failed, err := r.reconcileCertificateRun(ctx, cjob, cert, state, workflowCtx.deps, workflowCtx.reverseDeps)
+	if err != nil {
+		state.Phase = certificatesv1alpha1.ExecutionPhasePending
+		state.Message = fmt.Sprintf("transient reconcile error: %v", err)
+		state.LastCompletedTime = nil
+		progress.anyInProgress = true
+		progress.needsRequeue = true
+		return progress
+	}
+	if running {
+		progress.anyInProgress = true
+		progress.needsRequeue = true
+	}
+	if failed || state.Phase == certificatesv1alpha1.ExecutionPhaseFailed {
+		progress.anyFailed = true
+	}
+	return progress
+}
+
+func applyInputHashTransition(
+	cjob *certificatesv1alpha1.CertificateJob,
+	cert *certmgrv1.Certificate,
+	state *certificatesv1alpha1.CertificateExecutionState,
+	inputHash string,
+	now metav1.Time,
+) {
+	if state.InputHash == "" || (state.InputHash != inputHash && isTerminalPhase(state.Phase)) {
+		state.SecretName = cert.Spec.SecretName
+		state.InputHash = inputHash
+		state.RunID = shortHash(inputHash, 12)
+		state.Phase = certificatesv1alpha1.ExecutionPhasePending
+		state.Message = ""
+		state.LastTriggeredTime = &now
+		state.LastCompletedTime = nil
+		state.Nodes = initializeNodeStates(cjob)
+		return
+	}
+
+	if state.InputHash != inputHash {
+		// Keep the currently running workflow stable; apply new input only after terminal state.
+		state.Message = "input changed while workflow is running; deferring until current run completes"
+	}
+}
+
+func filterObservedStates(
+	observed []certificatesv1alpha1.CertificateExecutionState,
+	matchedKeys sets.Set[string],
+) []certificatesv1alpha1.CertificateExecutionState {
+	filtered := make([]certificatesv1alpha1.CertificateExecutionState, 0, len(observed))
+	for i := range observed {
+		entry := observed[i]
 		if matchedKeys.Has(certificateKey(entry.Namespace, entry.Name)) {
 			filtered = append(filtered, entry)
 		}
 	}
-	certificateJob.Status.ObservedCertificates = filtered
+	return filtered
+}
 
+func applyCertificateJobConditions(
+	certificateJob *certificatesv1alpha1.CertificateJob,
+	certificateCount int,
+	progress certificateWorkflowProgress,
+) {
 	reason := "Reconciled"
 	msg := "certificate-job workflow is ready"
-	if len(certificates) == 0 {
+	if certificateCount == 0 {
 		reason = "NoMatchingCertificates"
 		msg = "no matching certificates"
 	}
 
-	if anyFailed {
+	if progress.anyFailed {
 		setCondition(&certificateJob.Status.Conditions, conditionDegraded, metav1.ConditionTrue, "WorkflowFailed", "one or more certificate workflows failed", certificateJob.Generation)
 		setCondition(&certificateJob.Status.Conditions, conditionReady, metav1.ConditionFalse, "WorkflowFailed", "one or more certificate workflows failed", certificateJob.Generation)
 	} else {
@@ -233,30 +339,21 @@ func (r *CertificateJobReconciler) reconcileCertificateJob(ctx context.Context, 
 		setCondition(&certificateJob.Status.Conditions, conditionReady, metav1.ConditionTrue, reason, msg, certificateJob.Generation)
 	}
 
-	if anyInProgress {
+	if progress.anyInProgress {
 		setCondition(&certificateJob.Status.Conditions, conditionProgressing, metav1.ConditionTrue, "WorkflowRunning", "one or more workflows are running", certificateJob.Generation)
 	} else {
 		setCondition(&certificateJob.Status.Conditions, conditionProgressing, metav1.ConditionFalse, "AsExpected", "no workflows are running", certificateJob.Generation)
 	}
-
-	if needsRequeue {
-		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
-	}
-	return ctrl.Result{}, nil
 }
 
 func (r *CertificateJobReconciler) listMatchingCertificates(ctx context.Context, cjob *certificatesv1alpha1.CertificateJob) ([]certmgrv1.Certificate, error) {
-	certSelector, err := metav1.LabelSelectorAsSelector(&cjob.Spec.CertificateSelector)
+	certSelector, err := certificateSelectorForJob(cjob)
 	if err != nil {
-		return nil, fmt.Errorf("invalid certificateSelector: %w", err)
+		return nil, err
 	}
 
 	list := &certmgrv1.CertificateList{}
-	opts := []client.ListOption{client.InNamespace(cjob.Namespace)}
-	if !isSelectorEmpty(certSelector) {
-		opts = append(opts, client.MatchingLabelsSelector{Selector: certSelector})
-	}
-	if err := r.List(ctx, list, opts...); err != nil {
+	if err := r.List(ctx, list, client.InNamespace(cjob.Namespace)); err != nil {
 		return nil, err
 	}
 	all := append([]certmgrv1.Certificate{}, list.Items...)
@@ -268,7 +365,13 @@ func (r *CertificateJobReconciler) listMatchingCertificates(ctx context.Context,
 		return all[i].Namespace < all[j].Namespace
 	})
 
-	return all, nil
+	matching := make([]certmgrv1.Certificate, 0, len(all))
+	for i := range all {
+		if selectorMatchesCertificateLabels(certSelector, all[i].Labels) {
+			matching = append(matching, all[i])
+		}
+	}
+	return matching, nil
 }
 
 func (r *CertificateJobReconciler) reconcileCertificateRun(
@@ -279,21 +382,57 @@ func (r *CertificateJobReconciler) reconcileCertificateRun(
 	deps map[string][]string,
 	reverseDeps map[string][]string,
 ) (bool, bool, error) {
+	ensureWorkflowNodeStates(cjob, state)
 	nodes := nodeStateMap(state)
-	for _, tmpl := range cjob.Spec.Jobs {
-		if _, ok := nodes[tmpl.Name]; !ok {
-			state.Nodes = append(state.Nodes, certificatesv1alpha1.WorkflowNodeState{Name: tmpl.Name, Phase: certificatesv1alpha1.ExecutionPhasePending})
-		}
-	}
-	nodes = nodeStateMap(state)
 
 	now := metav1.Now()
+	activeCount, failedNodes, err := r.observeWorkflowNodeJobs(ctx, certificate, state, now)
+	if err != nil {
+		return false, true, err
+	}
+
+	if failedNodes.Len() > 0 {
+		applyFailurePolicy(cjob.Spec.FailurePolicy, state, deps, reverseDeps, failedNodes.UnsortedList())
+	}
+
+	parallelism := requestedParallelism(cjob)
+	availableSlots := int(parallelism) - activeCount
+	if availableSlots > 0 {
+		scheduled, err := r.scheduleRunnableNodes(ctx, cjob, certificate, state, deps, nodes, availableSlots, now)
+		if err != nil {
+			return true, false, err
+		}
+		activeCount += scheduled
+	}
+
+	state.Phase = deriveWorkflowPhase(state)
+	if isTerminalPhase(state.Phase) {
+		state.LastCompletedTime = &now
+	}
+
+	return state.Phase == certificatesv1alpha1.ExecutionPhaseRunning || state.Phase == certificatesv1alpha1.ExecutionPhasePending,
+		state.Phase == certificatesv1alpha1.ExecutionPhaseFailed,
+		nil
+}
+
+func ensureWorkflowNodeStates(cjob *certificatesv1alpha1.CertificateJob, state *certificatesv1alpha1.CertificateExecutionState) {
+	nodes := nodeStateMap(state)
+	for _, tmpl := range cjob.Spec.Jobs {
+		if _, ok := nodes[tmpl.Name]; ok {
+			continue
+		}
+		state.Nodes = append(state.Nodes, certificatesv1alpha1.WorkflowNodeState{Name: tmpl.Name, Phase: certificatesv1alpha1.ExecutionPhasePending})
+	}
+}
+
+func (r *CertificateJobReconciler) observeWorkflowNodeJobs(
+	ctx context.Context,
+	certificate *certmgrv1.Certificate,
+	state *certificatesv1alpha1.CertificateExecutionState,
+	now metav1.Time,
+) (int, sets.Set[string], error) {
 	activeCount := 0
 	failedNodes := sets.New[string]()
-	defaultTTL := int32(3600)
-	if cjob.Spec.JobTTLSecondsAfterFinished != nil {
-		defaultTTL = *cjob.Spec.JobTTLSecondsAfterFinished
-	}
 
 	for i := range state.Nodes {
 		node := &state.Nodes[i]
@@ -311,7 +450,7 @@ func (r *CertificateJobReconciler) reconcileCertificateRun(
 				failedNodes.Insert(node.Name)
 				continue
 			}
-			return false, true, err
+			return 0, nil, err
 		}
 
 		if isJobComplete(job) {
@@ -340,10 +479,10 @@ func (r *CertificateJobReconciler) reconcileCertificateRun(
 		}
 	}
 
-	if failedNodes.Len() > 0 {
-		applyFailurePolicy(cjob.Spec.FailurePolicy, state, deps, reverseDeps, failedNodes.UnsortedList())
-	}
+	return activeCount, failedNodes, nil
+}
 
+func requestedParallelism(cjob *certificatesv1alpha1.CertificateJob) int32 {
 	parallelism := int32(1)
 	if cjob.Spec.Parallelism != nil {
 		parallelism = *cjob.Spec.Parallelism
@@ -351,80 +490,97 @@ func (r *CertificateJobReconciler) reconcileCertificateRun(
 	if parallelism < 1 {
 		parallelism = 1
 	}
+	return parallelism
+}
 
-	availableSlots := int(parallelism) - activeCount
-	if availableSlots > 0 {
-		jobTemplates := make(map[string]certificatesv1alpha1.CertificateJobTemplate, len(cjob.Spec.Jobs))
-		for _, j := range cjob.Spec.Jobs {
-			jobTemplates[j.Name] = j
+func requestedJobTTL(cjob *certificatesv1alpha1.CertificateJob) int32 {
+	defaultTTL := int32(3600)
+	if cjob.Spec.JobTTLSecondsAfterFinished != nil {
+		defaultTTL = *cjob.Spec.JobTTLSecondsAfterFinished
+	}
+	return defaultTTL
+}
+
+func jobTemplatesByName(cjob *certificatesv1alpha1.CertificateJob) map[string]certificatesv1alpha1.CertificateJobTemplate {
+	templates := make(map[string]certificatesv1alpha1.CertificateJobTemplate, len(cjob.Spec.Jobs))
+	for _, tmpl := range cjob.Spec.Jobs {
+		templates[tmpl.Name] = tmpl
+	}
+	return templates
+}
+
+func (r *CertificateJobReconciler) scheduleRunnableNodes(
+	ctx context.Context,
+	cjob *certificatesv1alpha1.CertificateJob,
+	certificate *certmgrv1.Certificate,
+	state *certificatesv1alpha1.CertificateExecutionState,
+	deps map[string][]string,
+	nodes map[string]*certificatesv1alpha1.WorkflowNodeState,
+	availableSlots int,
+	now metav1.Time,
+) (int, error) {
+	scheduled := 0
+	defaultTTL := requestedJobTTL(cjob)
+	jobTemplates := jobTemplatesByName(cjob)
+	runnable := runnableNodes(cjob.Spec.FailurePolicy, state, deps)
+	sort.Strings(runnable)
+
+	for _, nodeName := range runnable {
+		if availableSlots == 0 {
+			break
 		}
 
-		runnable := runnableNodes(cjob.Spec.FailurePolicy, state, deps)
-		sort.Strings(runnable)
+		node := nodes[nodeName]
+		template := jobTemplates[nodeName]
+		jobName := buildJobName(cjob.Name, certificate.Name, nodeName, state.RunID)
 
-		for _, nodeName := range runnable {
-			if availableSlots == 0 {
-				break
-			}
-			node := nodes[nodeName]
-			template := jobTemplates[nodeName]
-			jobName := buildJobName(cjob.Name, certificate.Name, nodeName, state.RunID)
-
-			existing := &batchv1.Job{}
-			err := r.Get(ctx, types.NamespacedName{Namespace: certificate.Namespace, Name: jobName}, existing)
-			if err != nil && !apierrors.IsNotFound(err) {
-				return true, false, err
-			}
-
-			if apierrors.IsNotFound(err) {
-				baseLabels := map[string]string{
-					"app.kubernetes.io/managed-by":                   "certificate-job-operator",
-					"certificates.rezzell.com/certificatejob":        cjob.Name,
-					"certificates.rezzell.com/certificate":           certificate.Name,
-					"certificates.rezzell.com/certificate-namespace": certificate.Namespace,
-					"certificates.rezzell.com/workflow-node":         nodeName,
-					"certificates.rezzell.com/run-id":                state.RunID,
-				}
-
-				job := &batchv1.Job{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:        jobName,
-						Namespace:   certificate.Namespace,
-						Labels:      mergeMaps(baseLabels, template.Labels),
-						Annotations: mergeMaps(nil, template.Annotations),
-					},
-					Spec: *template.Template.DeepCopy(),
-				}
-				job.Spec.Template.Labels = mergeMaps(baseLabels, job.Spec.Template.Labels)
-
-				hardenJobTemplate(&job.Spec, defaultTTL)
-				injectCertificateSecret(&job.Spec, certificate.Spec.SecretName)
-				if err := controllerutil.SetControllerReference(cjob, job, r.Scheme); err != nil {
-					return true, false, err
-				}
-				if err := r.Create(ctx, job); err != nil {
-					return true, false, err
-				}
-				r.Recorder.Eventf(cjob, corev1.EventTypeNormal, "JobCreated", "Created job %s for certificate %s/%s", job.Name, certificate.Namespace, certificate.Name)
-			}
-
-			node.JobName = jobName
-			node.Phase = certificatesv1alpha1.ExecutionPhaseRunning
-			node.Message = ""
-			node.StartedAt = &now
-			availableSlots--
-			activeCount++
+		existing := &batchv1.Job{}
+		err := r.Get(ctx, types.NamespacedName{Namespace: certificate.Namespace, Name: jobName}, existing)
+		if err != nil && !apierrors.IsNotFound(err) {
+			return scheduled, err
 		}
+
+		if apierrors.IsNotFound(err) {
+			baseLabels := map[string]string{
+				"app.kubernetes.io/managed-by":                   "certificate-job-operator",
+				"certificates.rezzell.com/certificatejob":        cjob.Name,
+				"certificates.rezzell.com/certificate":           certificate.Name,
+				"certificates.rezzell.com/certificate-namespace": certificate.Namespace,
+				"certificates.rezzell.com/workflow-node":         nodeName,
+				"certificates.rezzell.com/run-id":                state.RunID,
+			}
+
+			job := &batchv1.Job{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        jobName,
+					Namespace:   certificate.Namespace,
+					Labels:      mergeMapsWithBasePrecedence(baseLabels, template.Labels),
+					Annotations: mergeMaps(nil, template.Annotations),
+				},
+				Spec: *template.Template.DeepCopy(),
+			}
+			job.Spec.Template.Labels = mergeMapsWithBasePrecedence(baseLabels, job.Spec.Template.Labels)
+
+			ApplyJobSecurityDefaults(&job.Spec, defaultTTL)
+			injectCertificateSecret(&job.Spec, certificate.Spec.SecretName)
+			if err := controllerutil.SetControllerReference(cjob, job, r.Scheme); err != nil {
+				return scheduled, err
+			}
+			if err := r.Create(ctx, job); err != nil {
+				return scheduled, err
+			}
+			r.Recorder.Eventf(cjob, corev1.EventTypeNormal, "JobCreated", "Created job %s for certificate %s/%s", job.Name, certificate.Namespace, certificate.Name)
+		}
+
+		node.JobName = jobName
+		node.Phase = certificatesv1alpha1.ExecutionPhaseRunning
+		node.Message = ""
+		node.StartedAt = &now
+		availableSlots--
+		scheduled++
 	}
 
-	state.Phase = deriveWorkflowPhase(state)
-	if isTerminalPhase(state.Phase) {
-		state.LastCompletedTime = &now
-	}
-
-	return state.Phase == certificatesv1alpha1.ExecutionPhaseRunning || state.Phase == certificatesv1alpha1.ExecutionPhasePending,
-		state.Phase == certificatesv1alpha1.ExecutionPhaseFailed,
-		nil
+	return scheduled, nil
 }
 
 func buildWorkflowGraph(cjob *certificatesv1alpha1.CertificateJob) (map[string][]string, map[string][]string, error) {
@@ -443,7 +599,13 @@ func buildWorkflowGraph(cjob *certificatesv1alpha1.CertificateJob) (map[string][
 		if jobNames.Has(job.Name) {
 			return nil, nil, fmt.Errorf("duplicate job template name %q", job.Name)
 		}
-		if err := validateJobTemplateSecurity(&job.Template); err != nil {
+		if err := ValidateReservedLabels(job.Labels); err != nil {
+			return nil, nil, fmt.Errorf("job %q has invalid labels: %w", job.Name, err)
+		}
+		if err := ValidateReservedLabels(job.Template.Template.Labels); err != nil {
+			return nil, nil, fmt.Errorf("job %q has invalid pod template labels: %w", job.Name, err)
+		}
+		if err := ValidateJobTemplateSecurity(&job.Template); err != nil {
 			return nil, nil, fmt.Errorf("job %q violates security policy: %w", job.Name, err)
 		}
 		jobNames.Insert(job.Name)
@@ -670,19 +832,21 @@ func nodeStateMap(state *certificatesv1alpha1.CertificateExecutionState) map[str
 	return m
 }
 
-func buildInputHash(cert *certmgrv1.Certificate, secret *corev1.Secret) (string, error) {
+func buildInputHash(cert *certmgrv1.Certificate, secret *corev1.Secret, workflowSpecHash string) (string, error) {
 	payload := struct {
 		CertificateSpec   certmgrv1.CertificateSpec   `json:"certificateSpec"`
 		CertificateStatus certmgrv1.CertificateStatus `json:"certificateStatus"`
 		CertificateGen    int64                       `json:"certificateGeneration"`
 		SecretType        corev1.SecretType           `json:"secretType"`
 		SecretData        map[string][]byte           `json:"secretData"`
+		WorkflowSpecHash  string                      `json:"workflowSpecHash"`
 	}{
 		CertificateSpec:   cert.Spec,
 		CertificateStatus: cert.Status,
 		CertificateGen:    cert.Generation,
 		SecretType:        secret.Type,
 		SecretData:        secret.Data,
+		WorkflowSpecHash:  workflowSpecHash,
 	}
 
 	serialized, err := json.Marshal(payload)
@@ -694,11 +858,20 @@ func buildInputHash(cert *certmgrv1.Certificate, secret *corev1.Secret) (string,
 }
 
 func buildJobName(cjobName, certName, nodeName, runID string) string {
-	raw := sanitizeDNS1123(fmt.Sprintf("%s-%s-%s-%s", cjobName, certName, nodeName, runID))
-	if len(raw) <= 63 {
-		return raw
+	const maxLen = 63
+	suffix := shortHash(hashString(fmt.Sprintf("%s/%s/%s/%s", cjobName, certName, nodeName, runID)), 12)
+	base := sanitizeDNS1123(fmt.Sprintf("%s-%s-%s-%s", cjobName, certName, nodeName, runID))
+	prefixLen := maxLen - len(suffix) - 1
+	if prefixLen < 1 {
+		prefixLen = 1
 	}
-	return strings.Trim(raw[:63], "-")
+	if len(base) > prefixLen {
+		base = strings.Trim(base[:prefixLen], "-")
+	}
+	if base == "" {
+		base = "job"
+	}
+	return base + "-" + suffix
 }
 
 func sanitizeDNS1123(in string) string {
@@ -730,114 +903,20 @@ func shortHash(s string, n int) string {
 	return s[:n]
 }
 
-func validateJobTemplateSecurity(spec *batchv1.JobSpec) error {
-	podSpec := spec.Template.Spec
-
-	if podSpec.HostNetwork {
-		return fmt.Errorf("hostNetwork is not allowed")
-	}
-	if podSpec.HostPID {
-		return fmt.Errorf("hostPID is not allowed")
-	}
-	if podSpec.HostIPC {
-		return fmt.Errorf("hostIPC is not allowed")
-	}
-	if podSpec.ServiceAccountName != "" {
-		return fmt.Errorf("serviceAccountName override is not allowed")
-	}
-
-	for _, volume := range podSpec.Volumes {
-		if volume.HostPath != nil {
-			return fmt.Errorf("hostPath volume %q is not allowed", volume.Name)
-		}
-	}
-
-	containers := make([]corev1.Container, 0, len(podSpec.InitContainers)+len(podSpec.Containers))
-	containers = append(containers, podSpec.InitContainers...)
-	containers = append(containers, podSpec.Containers...)
-	for _, container := range containers {
-		if container.SecurityContext == nil {
-			continue
-		}
-		if boolPointerTrue(container.SecurityContext.Privileged) {
-			return fmt.Errorf("container %q cannot run privileged", container.Name)
-		}
-		if boolPointerTrue(container.SecurityContext.AllowPrivilegeEscalation) {
-			return fmt.Errorf("container %q cannot allow privilege escalation", container.Name)
-		}
-		if container.SecurityContext.Capabilities != nil && len(container.SecurityContext.Capabilities.Add) > 0 {
-			return fmt.Errorf("container %q cannot add linux capabilities", container.Name)
-		}
-		if container.SecurityContext.RunAsUser != nil && *container.SecurityContext.RunAsUser == 0 {
-			return fmt.Errorf("container %q cannot run as root", container.Name)
-		}
-	}
-
-	return nil
+func ValidateJobTemplateSecurity(spec *batchv1.JobSpec) error {
+	return jobsecurity.ValidateJobTemplateSecurity(spec)
 }
 
-func hardenJobTemplate(spec *batchv1.JobSpec, defaultTTL int32) {
-	if spec.TTLSecondsAfterFinished == nil {
-		ttl := defaultTTL
-		spec.TTLSecondsAfterFinished = &ttl
-	}
-
-	podSpec := &spec.Template.Spec
-	if podSpec.AutomountServiceAccountToken == nil {
-		disabled := false
-		podSpec.AutomountServiceAccountToken = &disabled
-	}
-	if podSpec.EnableServiceLinks == nil {
-		disabled := false
-		podSpec.EnableServiceLinks = &disabled
-	}
-
-	if podSpec.SecurityContext == nil {
-		podSpec.SecurityContext = &corev1.PodSecurityContext{}
-	}
-	if podSpec.SecurityContext.SeccompProfile == nil {
-		podSpec.SecurityContext.SeccompProfile = &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault}
-	}
-
-	for i := range podSpec.InitContainers {
-		applyContainerSecurityDefaults(&podSpec.InitContainers[i])
-	}
-	for i := range podSpec.Containers {
-		applyContainerSecurityDefaults(&podSpec.Containers[i])
-	}
+func ApplyJobSecurityDefaults(spec *batchv1.JobSpec, defaultTTL int32) {
+	jobsecurity.ApplyJobSecurityDefaults(spec, defaultTTL)
 }
 
-func applyContainerSecurityDefaults(container *corev1.Container) {
-	if container.SecurityContext == nil {
-		container.SecurityContext = &corev1.SecurityContext{}
-	}
-	if container.SecurityContext.AllowPrivilegeEscalation == nil {
-		disabled := false
-		container.SecurityContext.AllowPrivilegeEscalation = &disabled
-	}
-	if container.SecurityContext.SeccompProfile == nil {
-		container.SecurityContext.SeccompProfile = &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault}
-	}
-	if container.SecurityContext.Capabilities == nil {
-		container.SecurityContext.Capabilities = &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}}
-		return
-	}
-	if !containsCapability(container.SecurityContext.Capabilities.Drop) {
-		container.SecurityContext.Capabilities.Drop = append(container.SecurityContext.Capabilities.Drop, "ALL")
-	}
+func BoolPointerTrue(v *bool) bool {
+	return jobsecurity.BoolPointerTrue(v)
 }
 
-func boolPointerTrue(v *bool) bool {
-	return v != nil && *v
-}
-
-func containsCapability(capabilities []corev1.Capability) bool {
-	for _, capability := range capabilities {
-		if capability == "ALL" {
-			return true
-		}
-	}
-	return false
+func ContainsCapability(capabilities []corev1.Capability) bool {
+	return jobsecurity.ContainsCapability(capabilities)
 }
 
 func injectCertificateSecret(spec *batchv1.JobSpec, secretName string) {
@@ -899,6 +978,52 @@ func mergeMaps(base map[string]string, extras map[string]string) map[string]stri
 	return out
 }
 
+func mergeMapsWithBasePrecedence(base map[string]string, extras map[string]string) map[string]string {
+	out := make(map[string]string)
+	for k, v := range extras {
+		out[k] = v
+	}
+	for k, v := range base {
+		out[k] = v
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func ValidateReservedLabels(labelsMap map[string]string) error {
+	return jobsecurity.ValidateReservedLabels(labelsMap)
+}
+
+func buildWorkflowSpecHash(spec certificatesv1alpha1.CertificateJobSpec) (string, error) {
+	payload := struct {
+		CertificateSelector        metav1.LabelSelector                          `json:"certificateSelector"`
+		Jobs                       []certificatesv1alpha1.CertificateJobTemplate `json:"jobs"`
+		Workflow                   certificatesv1alpha1.CertificateWorkflowSpec  `json:"workflow"`
+		Parallelism                *int32                                        `json:"parallelism,omitempty"`
+		JobTTLSecondsAfterFinished *int32                                        `json:"jobTTLSecondsAfterFinished,omitempty"`
+		FailurePolicy              certificatesv1alpha1.FailurePolicy            `json:"failurePolicy,omitempty"`
+	}{
+		CertificateSelector:        spec.CertificateSelector,
+		Jobs:                       spec.Jobs,
+		Workflow:                   spec.Workflow,
+		Parallelism:                spec.Parallelism,
+		JobTTLSecondsAfterFinished: spec.JobTTLSecondsAfterFinished,
+		FailurePolicy:              spec.FailurePolicy,
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("unable to hash workflow spec: %w", err)
+	}
+	return hashString(string(raw)), nil
+}
+
+func hashString(input string) string {
+	sum := sha256.Sum256([]byte(input))
+	return hex.EncodeToString(sum[:])
+}
+
 func isJobComplete(job *batchv1.Job) bool {
 	for _, cond := range job.Status.Conditions {
 		if cond.Type == batchv1.JobComplete && cond.Status == corev1.ConditionTrue {
@@ -949,6 +1074,21 @@ func isSelectorEmpty(selector labels.Selector) bool {
 	return selector.Empty()
 }
 
+func certificateSelectorForJob(cjob *certificatesv1alpha1.CertificateJob) (labels.Selector, error) {
+	certSelector, err := metav1.LabelSelectorAsSelector(&cjob.Spec.CertificateSelector)
+	if err != nil {
+		return nil, fmt.Errorf("invalid certificateSelector: %w", err)
+	}
+	return certSelector, nil
+}
+
+func selectorMatchesCertificateLabels(selector labels.Selector, certLabels map[string]string) bool {
+	if isSelectorEmpty(selector) {
+		return true
+	}
+	return selector.Matches(labels.Set(certLabels))
+}
+
 func (r *CertificateJobReconciler) mapCertificateToCertificateJobs(ctx context.Context, obj client.Object) []reconcile.Request {
 	cert, ok := obj.(*certmgrv1.Certificate)
 	if !ok {
@@ -964,11 +1104,11 @@ func (r *CertificateJobReconciler) mapCertificateToCertificateJobs(ctx context.C
 	for i := range cjobList.Items {
 		cjob := cjobList.Items[i]
 
-		certSelector, err := metav1.LabelSelectorAsSelector(&cjob.Spec.CertificateSelector)
+		certSelector, err := certificateSelectorForJob(&cjob)
 		if err != nil {
 			continue
 		}
-		if !isSelectorEmpty(certSelector) && !certSelector.Matches(labels.Set(cert.Labels)) {
+		if !selectorMatchesCertificateLabels(certSelector, cert.Labels) {
 			continue
 		}
 

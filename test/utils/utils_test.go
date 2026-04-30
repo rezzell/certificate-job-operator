@@ -1,7 +1,6 @@
 package utils
 
 import (
-	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
@@ -49,44 +48,32 @@ func TestUncommentCode(t *testing.T) {
 	})
 
 	t.Run("fails when writing the prefix-free content fails", func(t *testing.T) {
-		restore := stubBufferWrites(t, 2, 0)
-		defer restore()
-
 		path := writeTempFile(t, "before\n"+target+"\nafter\n")
-		err := UncommentCode(path, target, prefix)
+		err := uncommentCodeWithWriter(path, target, prefix, failingWriterFactory(2, 0))
 		if err == nil || !strings.Contains(err.Error(), "failed to write to output") {
 			t.Fatalf("expected write error, got %v", err)
 		}
 	})
 
 	t.Run("fails when writing the newline fails", func(t *testing.T) {
-		restore := stubBufferWrites(t, 0, 2)
-		defer restore()
-
 		path := writeTempFile(t, "before\n"+target+"\nafter\n")
-		err := UncommentCode(path, target, prefix)
+		err := uncommentCodeWithWriter(path, target, prefix, failingWriterFactory(0, 2))
 		if err == nil || !strings.Contains(err.Error(), "failed to write to output") {
 			t.Fatalf("expected write error, got %v", err)
 		}
 	})
 
 	t.Run("fails when writing the leading content fails", func(t *testing.T) {
-		restore := stubBufferWrites(t, 1, 0)
-		defer restore()
-
 		path := writeTempFile(t, "before\n"+target+"\nafter\n")
-		err := UncommentCode(path, target, prefix)
+		err := uncommentCodeWithWriter(path, target, prefix, failingWriterFactory(1, 0))
 		if err == nil || !strings.Contains(err.Error(), "failed to write to output") {
 			t.Fatalf("expected write error, got %v", err)
 		}
 	})
 
 	t.Run("fails when writing the trailing content fails", func(t *testing.T) {
-		restore := stubBufferWrites(t, 0, 3)
-		defer restore()
-
 		path := writeTempFile(t, "before\n"+target+"\nafter\n")
-		err := UncommentCode(path, target, prefix)
+		err := uncommentCodeWithWriter(path, target, prefix, failingWriterFactory(0, 3))
 		if err == nil || !strings.Contains(err.Error(), "failed to write to output") {
 			t.Fatalf("expected write error, got %v", err)
 		}
@@ -121,33 +108,41 @@ func writeTempFile(t *testing.T, contents string) string {
 	return path
 }
 
-func stubBufferWrites(t *testing.T, failWriteOn, failWriteStringOn int) func() {
-	t.Helper()
+type failingWriter struct {
+	content          []byte
+	writeCalls       int
+	writeStringCalls int
+	failWriteOn      int
+	failWriteStrOn   int
+}
 
-	origWrite := bufferWrite
-	origWriteString := bufferWriteString
-
-	var writeCalls int
-	var writeStringCalls int
-
-	bufferWrite = func(buf *bytes.Buffer, p []byte) (int, error) {
-		writeCalls++
-		if failWriteOn > 0 && writeCalls == failWriteOn {
-			return 0, errors.New("write failed")
-		}
-		return buf.Write(p)
+func (w *failingWriter) Write(p []byte) (int, error) {
+	w.writeCalls++
+	if w.failWriteOn > 0 && w.writeCalls == w.failWriteOn {
+		return 0, errors.New("write failed")
 	}
+	w.content = append(w.content, p...)
+	return len(p), nil
+}
 
-	bufferWriteString = func(buf *bytes.Buffer, s string) (int, error) {
-		writeStringCalls++
-		if failWriteStringOn > 0 && writeStringCalls == failWriteStringOn {
-			return 0, errors.New("write string failed")
-		}
-		return buf.WriteString(s)
+func (w *failingWriter) WriteString(s string) (int, error) {
+	w.writeStringCalls++
+	if w.failWriteStrOn > 0 && w.writeStringCalls == w.failWriteStrOn {
+		return 0, errors.New("write string failed")
 	}
+	w.content = append(w.content, s...)
+	return len(s), nil
+}
 
-	return func() {
-		bufferWrite = origWrite
-		bufferWriteString = origWriteString
+func (w *failingWriter) Bytes() []byte {
+	return w.content
+}
+
+func failingWriterFactory(failWriteOn, failWriteStringOn int) func() outputWriter {
+	return func() outputWriter {
+		return &failingWriter{
+			failWriteOn:    failWriteOn,
+			failWriteStrOn: failWriteStringOn,
+		}
 	}
 }
