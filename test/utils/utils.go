@@ -48,7 +48,7 @@ type outputWriter interface {
 const (
 	manifestRetryAttempts = 3
 	manifestRetryDelay    = 2 * time.Second
-	caBundleWaitAttempts  = 30
+	caBundleWaitAttempts  = 60
 	caBundleWaitDelay     = 2 * time.Second
 )
 
@@ -321,6 +321,7 @@ func waitForCABundleInjection(resourceType, resourceName string) error {
 	var err error
 	for attempt := 1; attempt <= caBundleWaitAttempts; attempt++ {
 		cmd := exec.Command("kubectl", "get", resourceType, resourceName,
+			"--request-timeout=10s",
 			"-o", "jsonpath={.webhooks[0].clientConfig.caBundle}")
 		output, cmdErr := Run(cmd)
 		if cmdErr == nil && strings.TrimSpace(output) != "" {
