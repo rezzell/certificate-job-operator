@@ -96,6 +96,35 @@ func TestUncommentCode(t *testing.T) {
 	})
 }
 
+func TestWaitForCABundleInjection(t *testing.T) {
+	t.Run("uses request timeout and succeeds when ca bundle is present", func(t *testing.T) {
+		tempDir := t.TempDir()
+		argsPath := filepath.Join(tempDir, "kubectl-args.txt")
+		kubectlPath := filepath.Join(tempDir, "kubectl")
+
+		script := "#!/bin/sh\n" +
+			"echo \"$@\" >> \"" + argsPath + "\"\n" +
+			"echo \"dummy-ca-bundle\"\n"
+		if err := os.WriteFile(kubectlPath, []byte(script), 0o755); err != nil {
+			t.Fatalf("WriteFile returned error: %v", err)
+		}
+
+		t.Setenv("PATH", tempDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+		if err := waitForCABundleInjection("validatingwebhookconfigurations.admissionregistration.k8s.io", "cert-manager-webhook"); err != nil {
+			t.Fatalf("waitForCABundleInjection returned error: %v", err)
+		}
+
+		argsOutput, err := os.ReadFile(argsPath)
+		if err != nil {
+			t.Fatalf("ReadFile returned error: %v", err)
+		}
+		if !strings.Contains(string(argsOutput), "--request-timeout=10s") {
+			t.Fatalf("expected kubectl to include request timeout flag, got %q", string(argsOutput))
+		}
+	})
+}
+
 func writeTempFile(t *testing.T, contents string) string {
 	t.Helper()
 
