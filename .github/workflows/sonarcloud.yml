@@ -54,6 +54,7 @@ jobs:
             -Dsonar.go.coverage.reportPaths=cover.out
             -Dsonar.qualitygate.wait=true
             -Dsonar.qualitygate.timeout=300
+            -Dsonar.projectVersion=${{ github.ref_name }}
 
       - name: Skip scan when SONAR_TOKEN is unset
         if: ${{ env.SONAR_TOKEN == '' }}
