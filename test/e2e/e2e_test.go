@@ -317,6 +317,71 @@ var _ = Describe("Manager", Ordered, func() {
 			Eventually(verifyCAInjection).Should(Succeed())
 		})
 
+		It("should re-execute the workflow when cert-manager renews the certificate", func() {
+			runID := time.Now().UnixNano()
+			suffix := fmt.Sprintf("%d", runID)
+
+			issuerName := "renewal-issuer-" + suffix
+			cjobName := "renewal-job-" + suffix
+			certName := "renewal-cert-" + suffix
+			secretName := "renewal-secret-" + suffix
+
+			applyTempManifest(manifestForRenewalTest(namespace, issuerName, cjobName, certName, secretName))
+			DeferCleanup(func() {
+				deleteResource("certificatejobs", cjobName)
+				deleteResource("certificates", certName)
+				deleteResource("issuers", issuerName)
+			})
+
+			By("waiting for the initial issuance to complete")
+			Eventually(func(g Gomega) {
+				cert := getCertificate(certName)
+				g.Expect(cert.Status.Conditions).NotTo(BeEmpty())
+				g.Expect(isCertificateReady(cert)).To(BeTrue())
+			}, 5*time.Minute, 2*time.Second).Should(Succeed())
+
+			jobSelector := fmt.Sprintf("certificates.rezzell.com/certificate=%s", certName)
+			By("waiting for the first workflow job(s) to be created")
+			Eventually(func(g Gomega) {
+				jobs := listJobsByLabel(jobSelector)
+				g.Expect(len(jobs)).To(BeNumerically(">", 0))
+			}, 5*time.Minute, 2*time.Second).Should(Succeed())
+
+			initialRevision := certificateRevision(getCertificate(certName))
+			initialSecret := getSecret(secretName)
+			initialJobs := listJobsByLabel(jobSelector)
+
+			By("forcing cert-manager to renew the certificate")
+			renewCertificate(certName)
+
+			By("waiting for cert-manager to issue a renewed certificate")
+			Eventually(func(g Gomega) {
+				cert := getCertificate(certName)
+				g.Expect(certificateRevision(cert)).To(BeNumerically(">", initialRevision))
+				g.Expect(cert.Status.Conditions).NotTo(BeEmpty())
+				g.Expect(isCertificateReady(cert)).To(BeTrue())
+			}, 5*time.Minute, 2*time.Second).Should(Succeed())
+
+			By("waiting for the workflow status to settle after renewal")
+			Eventually(func(g Gomega) {
+				cjob := getCertificateJob(cjobName)
+				g.Expect(cjob.Status.ObservedCertificates).To(HaveLen(1))
+				state := cjob.Status.ObservedCertificates[0]
+				g.Expect(state.Nodes).To(HaveLen(1))
+				g.Expect(state.Nodes[0].JobName).NotTo(BeEmpty())
+			}, 5*time.Minute, 2*time.Second).Should(Succeed())
+
+			Eventually(func(g Gomega) {
+				secret := getSecret(secretName)
+				g.Expect(secret.Data["tls.crt"]).NotTo(Equal(initialSecret.Data["tls.crt"]))
+			}, 5*time.Minute, 2*time.Second).Should(Succeed())
+
+			Eventually(func(g Gomega) {
+				jobs := listJobsByLabel(jobSelector)
+				g.Expect(len(jobs)).To(BeNumerically(">", len(initialJobs)))
+			}, 5*time.Minute, 2*time.Second).Should(Succeed())
+		})
+
 		// +kubebuilder:scaffold:e2e-webhooks-checks
 
 		// Customize the e2e test suite with scenarios specific to your project.
