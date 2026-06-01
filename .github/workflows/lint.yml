@@ -38,18 +38,24 @@ jobs:
     name: Lint (Ubuntu)
     needs: determine-self-hosted-runner
     runs-on: ${{ fromJson(needs.determine-self-hosted-runner.outputs.runner) }}
+    container:
+      image: golang:1.25.10@sha256:c138bff780910acf4254ab3a6f7ff0f64bbd841f27bd82bfa986fe122c109538
+    env:
+      GOCACHE: /tmp/certjob-go-build-cache
+      GOMODCACHE: /tmp/certjob-go-mod-cache
     steps:
       - name: Clone the code
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      - name: Setup Go
-        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+      - name: Cache Go build and module directories
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
-          go-version-file: go.mod
-          check-latest: true
+          path: |
+            /tmp/certjob-go-build-cache
+            /tmp/certjob-go-mod-cache
+          key: ${{ runner.os }}-go-lint-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-lint-
 
       - name: Run linter
-        env:
-          GOCACHE: /tmp/certjob-go-build-cache
-          GOMODCACHE: /tmp/certjob-go-mod-cache
         run: make lint
