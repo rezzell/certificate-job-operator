@@ -41,24 +41,7 @@ jobs:
             | "name=\(.name) status=\(.status) busy=\(.busy) labels=\([.labels[].name] | join(","))"
           ' "${body_file}"
 
-          next_url="$(python3 - "${headers_file}" <<'PY'
-import re
-import sys
-
-headers = open(sys.argv[1], encoding="utf-8").read()
-match = re.search(r'^\s*link:\s*(.*)$', headers, re.IGNORECASE | re.MULTILINE)
-if not match:
-    print("")
-    raise SystemExit
-for part in match.group(1).split(","):
-    if 'rel="next"' in part:
-        url = re.search(r"<([^>]+)>", part)
-        if url:
-            print(url.group(1))
-            raise SystemExit
-print("")
-PY
-)"
+          next_url="$(grep -i '^link:' "${headers_file}" | sed -n 's/.*<\([^>]*\)>; rel="next".*/\1/p')"
 
           if [[ -n "${next_url}" ]]; then
             echo "Pagination warning: additional runner pages exist (${next_url})"
