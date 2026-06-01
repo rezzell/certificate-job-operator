@@ -16,11 +16,7 @@ jobs:
     outputs:
       runner: ${{ steps.determine-self-hosted-runner.outputs.use-runner }}
     steps:
-      - name: Wait for possible parallel workflow run job startup lag
-        # After runner choice, the job that will use it has unavoidable job startup lag
-        # Wait for that job start / runner state change before we choose the runner for this run
-        run: sleep 30
-      - name: Use self-hosted runner if online and not busy, otherwise public runner
+      - name: Use self-hosted runner if online, queue if available
         id: determine-self-hosted-runner
         uses: mikehardy/runner-fallback-action@dc7732f9e532c451b2527b288ba8d58fd4b0a4ca # v1
         with:
@@ -28,8 +24,8 @@ jobs:
           # self-hosted runner label is configured in ARC app on runner host
           primary-runner: "galleon-runner-set"
           fallback-runner: "ubuntu-latest"
-          primaries-required: 1
-          fallback-on-error: true
+          # primaries-required: 1
+          fallback-on-error: false
           # Actions secrets and Dependabot secrets are separate, and this is at org level::
           # https://github.com/organizations/ankidroid/settings/secrets/dependabot
           # https://github.com/organizations/ankidroid/settings/secrets/actions
