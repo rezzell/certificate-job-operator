@@ -41,7 +41,7 @@ jobs:
             | "name=\(.name) status=\(.status) busy=\(.busy) labels=\([.labels[].name] | join(","))"
           ' "${body_file}"
 
-          next_url="$(grep -i '^link:' "${headers_file}" | sed -n 's/.*<\([^>]*\)>; rel="next".*/\1/p')"
+          next_url="$(grep -i '^link:' "${headers_file}" | sed -n 's/.*<\([^>]*\)>; rel="next".*/\1/p' || true)"
 
           if [[ -n "${next_url}" ]]; then
             echo "Pagination warning: additional runner pages exist (${next_url})"
@@ -49,20 +49,29 @@ jobs:
             echo "Pagination: no additional runner pages"
           fi
 
-      - name: Use self-hosted runner if online, queue if available
+      - name: Select runner target
         id: determine-self-hosted-runner
-        uses: mikehardy/runner-fallback-action@dc7732f9e532c451b2527b288ba8d58fd4b0a4ca # v1
-        with:
-          organization: "rezzell"
-          # self-hosted runner label is configured in ARC app on runner host
-          primary-runner: "galleon-runner-set"
-          fallback-runner: "ubuntu-latest"
-          # primaries-required: 1
-          fallback-on-error: false
-          # Actions secrets and Dependabot secrets are separate, and this is at org level::
-          # https://github.com/organizations/ankidroid/settings/secrets/dependabot
-          # https://github.com/organizations/ankidroid/settings/secrets/actions
-          github-token: ${{ secrets.REZZELL_ORG_ADMIN_KEY }}
+        env:
+          GH_TOKEN: ${{ secrets.REZZELL_ORG_ADMIN_KEY }}
+        run: |
+          set -euo pipefail
+          body_file="$(mktemp)"
+          trap 'rm -f "${body_file}"' EXIT
+
+          curl -fsSL \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/orgs/rezzell/actions/runners?per_page=100" \
+            -o "${body_file}"
+
+          online_count="$(jq -r '[.runners[] | select(.status == "online" and (.name | startswith("galleon-runner-set")))] | length' "${body_file}")"
+          if [[ "${online_count}" -gt 0 ]]; then
+            echo 'use-runner=["galleon-runner-set"]' >> "${GITHUB_OUTPUT}"
+            echo "Selected self-hosted label galleon-runner-set (${online_count} online runners)"
+          else
+            echo 'use-runner=["ubuntu-latest"]' >> "${GITHUB_OUTPUT}"
+            echo "Selected fallback ubuntu-latest (no matching online self-hosted runners)"
+          fi
   lint:
     name: Lint (Ubuntu)
     needs: determine-self-hosted-runner
