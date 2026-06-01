@@ -22,7 +22,7 @@ jobs:
         run: sleep 30
       - name: Use self-hosted runner if online and not busy, otherwise public runner
         id: determine-self-hosted-runner
-        uses: mikehardy/runner-fallback-action@v1
+        uses: mikehardy/runner-fallback-action@dc7732f9e532c451b2527b288ba8d58fd4b0a4ca # v1
         with:
           organization: "rezzell"
           # self-hosted runner label is configured in ARC app on runner host
