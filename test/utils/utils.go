@@ -48,7 +48,7 @@ type outputWriter interface {
 const (
 	manifestRetryAttempts = 3
 	manifestRetryDelay    = 2 * time.Second
-	caBundleWaitAttempts  = 60
+	caBundleWaitAttempts  = 90
 	caBundleWaitDelay     = 2 * time.Second
 )
 
