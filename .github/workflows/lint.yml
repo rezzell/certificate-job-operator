@@ -8,7 +8,7 @@ on:
 
 jobs:
   choose-runner:
-    uses: rezzell/.github/.github/workflows/choose-runner.yml@main
+    uses: rezzell/.github/.github/workflows/choose-runner.yml@b16e70c8bd989dfb4c7c0f91728fdd813f0982ce
     with:
       organization: rezzell
       scale-set-name: galleon-runner-set
@@ -23,11 +23,16 @@ jobs:
     container:
       image: golang:1.25.10@sha256:c138bff780910acf4254ab3a6f7ff0f64bbd841f27bd82bfa986fe122c109538
     env:
+      HOME: /tmp/certjob-home
+      XDG_CACHE_HOME: /tmp/certjob-cache
       GOCACHE: /tmp/certjob-go-build-cache
       GOMODCACHE: /tmp/certjob-go-mod-cache
     steps:
       - name: Clone the code
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Prepare cache directories
+        run: mkdir -p /tmp/certjob-home /tmp/certjob-cache /tmp/certjob-go-build-cache /tmp/certjob-go-mod-cache
 
       - name: Cache Go build and module directories
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
@@ -35,6 +40,7 @@ jobs:
           path: |
             /tmp/certjob-go-build-cache
             /tmp/certjob-go-mod-cache
+            /tmp/certjob-cache/golangci-lint
           key: ${{ runner.os }}-go-lint-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-lint-
