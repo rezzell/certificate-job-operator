@@ -8,7 +8,7 @@ on:
 
 jobs:
   choose-runner:
-    uses: ./.github/workflows/choose-runner.yml
+    uses: rezzell/.github/.github/workflows/choose-runner.yml@main
     with:
       organization: rezzell
       scale-set-name: galleon-runner-set
