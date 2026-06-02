@@ -525,6 +525,8 @@ func TestValidateReservedLabels(t *testing.T) {
 func TestInjectCertificateSecret(t *testing.T) {
 	t.Parallel()
 
+	const secretName = "tls-secret"
+
 	spec := &batchv1.JobSpec{
 		Template: corev1.PodTemplateSpec{
 			Spec: corev1.PodSpec{
@@ -540,13 +542,13 @@ func TestInjectCertificateSecret(t *testing.T) {
 		},
 	}
 
-	injectCertificateSecret(spec, "tls-secret")
+	injectCertificateSecret(spec, secretName)
 
 	if len(spec.Template.Spec.Volumes) != 1 {
 		t.Fatalf("expected 1 volume, got %d", len(spec.Template.Spec.Volumes))
 	}
-	if spec.Template.Spec.Volumes[0].Secret == nil || spec.Template.Spec.Volumes[0].Secret.SecretName != "tls-secret" {
-		t.Fatalf("expected secret volume to reference tls-secret")
+	if spec.Template.Spec.Volumes[0].Secret == nil || spec.Template.Spec.Volumes[0].Secret.SecretName != secretName {
+		t.Fatalf("expected secret volume to reference %s", secretName)
 	}
 	if len(spec.Template.Spec.Containers[0].VolumeMounts) != 1 {
 		t.Fatalf("expected secret mount on main container")
@@ -555,8 +557,10 @@ func TestInjectCertificateSecret(t *testing.T) {
 		t.Fatalf("expected mount path %q, got %q", secretMountPath, spec.Template.Spec.Containers[0].VolumeMounts[0].MountPath)
 	}
 
-	injectCertificateSecret(spec, "tls-secret-updated")
-	if spec.Template.Spec.Volumes[0].Secret == nil || spec.Template.Spec.Volumes[0].Secret.SecretName != "tls-secret-updated" {
+	const updatedSecretName = "tls-secret-updated"
+
+	injectCertificateSecret(spec, updatedSecretName)
+	if spec.Template.Spec.Volumes[0].Secret == nil || spec.Template.Spec.Volumes[0].Secret.SecretName != updatedSecretName {
 		t.Fatalf("expected existing secret volume to be updated")
 	}
 }

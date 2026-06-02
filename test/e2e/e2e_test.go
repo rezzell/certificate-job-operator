@@ -522,7 +522,12 @@ func isRetryableDeployError(err error) bool {
 	return strings.Contains(message, `failed calling webhook "webhook.cert-manager.io"`) ||
 		strings.Contains(message, "x509: certificate signed by unknown authority") ||
 		strings.Contains(message, "the server could not find the requested resource (post certificates.cert-manager.io)") ||
-		strings.Contains(message, "the server could not find the requested resource (post issuers.cert-manager.io)")
+		strings.Contains(message, "the server could not find the requested resource (post issuers.cert-manager.io)") ||
+		strings.Contains(message, "resource mapping not found") ||
+		strings.Contains(message, "unable to recognize") ||
+		strings.Contains(message, "no matches for kind \"Certificate\"") ||
+		strings.Contains(message, "no matches for kind \"Issuer\"") ||
+		strings.Contains(message, "no matches for kind \"ClusterIssuer\"")
 }
 
 // tokenRequest is a simplified representation of the Kubernetes TokenRequest API response,

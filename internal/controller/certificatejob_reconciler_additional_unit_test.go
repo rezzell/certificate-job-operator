@@ -17,22 +17,23 @@ import (
 	certificatesv1alpha1 "github.com/russell/certificate-job-operator/api/v1alpha1"
 )
 
+const testNamespace = "default"
+
 func TestObserveWorkflowNodeJobsUpdatesNodeStates(t *testing.T) {
 	t.Parallel()
 
 	scheme := newTestScheme(t)
-	ns := "default"
 
 	completeJob := &batchv1.Job{
-		ObjectMeta: metav1.ObjectMeta{Name: "job-complete", Namespace: ns},
+		ObjectMeta: metav1.ObjectMeta{Name: "job-complete", Namespace: testNamespace},
 		Status:     batchv1.JobStatus{Conditions: []batchv1.JobCondition{{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}}},
 	}
 	failedJob := &batchv1.Job{
-		ObjectMeta: metav1.ObjectMeta{Name: "job-failed", Namespace: ns},
+		ObjectMeta: metav1.ObjectMeta{Name: "job-failed", Namespace: testNamespace},
 		Status:     batchv1.JobStatus{Conditions: []batchv1.JobCondition{{Type: batchv1.JobFailed, Status: corev1.ConditionTrue}}},
 	}
-	activeJob := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "job-active", Namespace: ns}, Status: batchv1.JobStatus{Active: 1}}
-	idleJob := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "job-idle", Namespace: ns}}
+	activeJob := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "job-active", Namespace: testNamespace}, Status: batchv1.JobStatus{Active: 1}}
+	idleJob := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "job-idle", Namespace: testNamespace}}
 
 	r := &CertificateJobReconciler{
 		Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(completeJob, failedJob, activeJob, idleJob).Build(),
@@ -48,7 +49,7 @@ func TestObserveWorkflowNodeJobsUpdatesNodeStates(t *testing.T) {
 	}}
 
 	now := metav1.Now()
-	activeCount, failedNodes, err := r.observeWorkflowNodeJobs(context.Background(), &certmgrv1.Certificate{ObjectMeta: metav1.ObjectMeta{Namespace: ns}}, state, now)
+	activeCount, failedNodes, err := r.observeWorkflowNodeJobs(context.Background(), &certmgrv1.Certificate{ObjectMeta: metav1.ObjectMeta{Namespace: testNamespace}}, state, now)
 	if err != nil {
 		t.Fatalf("observeWorkflowNodeJobs returned error: %v", err)
 	}
@@ -83,7 +84,7 @@ func TestScheduleRunnableNodesCreatesJob(t *testing.T) {
 	scheme := newTestScheme(t)
 	cjob := validCertificateJob(t)
 	cjob.Name = "cjob"
-	cjob.Namespace = "default"
+	cjob.Namespace = testNamespace
 
 	deps, _, err := buildWorkflowGraph(cjob)
 	if err != nil {
@@ -95,7 +96,7 @@ func TestScheduleRunnableNodesCreatesJob(t *testing.T) {
 		Nodes: initializeNodeStates(cjob),
 	}
 	cert := &certmgrv1.Certificate{
-		ObjectMeta: metav1.ObjectMeta{Name: "cert-a", Namespace: "default"},
+		ObjectMeta: metav1.ObjectMeta{Name: "cert-a", Namespace: testNamespace},
 		Spec:       certmgrv1.CertificateSpec{SecretName: "tls-secret"},
 	}
 
@@ -124,7 +125,7 @@ func TestScheduleRunnableNodesCreatesJob(t *testing.T) {
 	}
 
 	created := &batchv1.Job{}
-	if err := r.Get(context.Background(), types.NamespacedName{Name: buildNode.JobName, Namespace: "default"}, created); err != nil {
+	if err := r.Get(context.Background(), types.NamespacedName{Name: buildNode.JobName, Namespace: testNamespace}, created); err != nil {
 		t.Fatalf("expected created job to exist: %v", err)
 	}
 	if created.Labels["app.kubernetes.io/managed-by"] != "certificate-job-operator" {
@@ -145,7 +146,7 @@ func TestMapCertificateToCertificateJobsFiltersSelectors(t *testing.T) {
 	t.Parallel()
 
 	scheme := newTestScheme(t)
-	ns := "default"
+	ns := testNamespace
 
 	matching := &certificatesv1alpha1.CertificateJob{
 		ObjectMeta: metav1.ObjectMeta{Name: "match", Namespace: ns},
@@ -179,7 +180,7 @@ func TestMapSecretToCertificateJobsDeduplicatesRequests(t *testing.T) {
 	t.Parallel()
 
 	scheme := newTestScheme(t)
-	ns := "default"
+	ns := testNamespace
 	secretName := "tls-secret"
 
 	certA := &certmgrv1.Certificate{ObjectMeta: metav1.ObjectMeta{Name: "cert-a", Namespace: ns, Labels: map[string]string{"app": "web"}}, Spec: certmgrv1.CertificateSpec{SecretName: secretName}}

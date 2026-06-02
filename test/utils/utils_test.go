@@ -97,6 +97,11 @@ func TestUncommentCode(t *testing.T) {
 }
 
 func TestWaitForCABundleInjection(t *testing.T) {
+	const (
+		webhookResourceType = "validatingwebhookconfigurations.admissionregistration.k8s.io"
+		webhookResourceName = "cert-manager-webhook"
+	)
+
 	t.Run("uses request timeout and succeeds when ca bundle is present", func(t *testing.T) {
 		tempDir := t.TempDir()
 		argsPath := filepath.Join(tempDir, "kubectl-args.txt")
@@ -111,7 +116,7 @@ func TestWaitForCABundleInjection(t *testing.T) {
 
 		t.Setenv("PATH", tempDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-		if err := waitForCABundleInjection("validatingwebhookconfigurations.admissionregistration.k8s.io", "cert-manager-webhook"); err != nil {
+		if err := waitForCABundleInjection(webhookResourceType, webhookResourceName); err != nil {
 			t.Fatalf("waitForCABundleInjection returned error: %v", err)
 		}
 
