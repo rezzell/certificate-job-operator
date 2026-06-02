@@ -7,75 +7,19 @@ on:
   pull_request:
 
 jobs:
-  # We may have a self-hosted runner available for macOS. Use it if so.
-  determine-self-hosted-runner:
-    runs-on: ubuntu-latest
-    concurrency:
-      group: runner-determination
-      cancel-in-progress: false
-    outputs:
-      runner: ${{ steps.determine-self-hosted-runner.outputs.use-runner }}
-    steps:
-      - name: Debug org runner visibility
-        env:
-          GH_TOKEN: ${{ secrets.REZZELL_ORG_ADMIN_KEY }}
-        run: |
-          set -euo pipefail
+  choose-runner:
+    uses: rezzell/.github/.github/workflows/choose-runner.yml@main
+    with:
+      organization: rezzell
+      scale-set-name: galleon-runner-set
+      fallback-runner: ubuntu-latest
+    secrets:
+      github-token: ${{ secrets.REZZELL_ORG_ADMIN_KEY }}
 
-          headers_file="$(mktemp)"
-          body_file="$(mktemp)"
-          trap 'rm -f "${headers_file}" "${body_file}"' EXIT
-
-          curl -fsSL \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            -D "${headers_file}" \
-            "https://api.github.com/orgs/rezzell/actions/runners?per_page=100" \
-            -o "${body_file}"
-
-          echo "Org runner API total_count: $(jq -r '.total_count' "${body_file}")"
-          echo "Runners returned on this page: $(jq -r '.runners | length' "${body_file}")"
-
-          jq -r '
-            .runners[]
-            | "name=\(.name) status=\(.status) busy=\(.busy) labels=\([.labels[].name] | join(","))"
-          ' "${body_file}"
-
-          next_url="$(grep -i '^link:' "${headers_file}" | sed -n 's/.*<\([^>]*\)>; rel="next".*/\1/p' || true)"
-
-          if [[ -n "${next_url}" ]]; then
-            echo "Pagination warning: additional runner pages exist (${next_url})"
-          else
-            echo "Pagination: no additional runner pages"
-          fi
-
-      - name: Select runner target
-        id: determine-self-hosted-runner
-        env:
-          GH_TOKEN: ${{ secrets.REZZELL_ORG_ADMIN_KEY }}
-        run: |
-          set -euo pipefail
-          body_file="$(mktemp)"
-          trap 'rm -f "${body_file}"' EXIT
-
-          curl -fsSL \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/orgs/rezzell/actions/runners?per_page=100" \
-            -o "${body_file}"
-
-          online_count="$(jq -r '[.runners[] | select(.status == "online" and (.name | startswith("galleon-runner-set")))] | length' "${body_file}")"
-          if [[ "${online_count}" -gt 0 ]]; then
-            echo 'use-runner=["galleon-runner-set"]' >> "${GITHUB_OUTPUT}"
-            echo "Selected self-hosted label galleon-runner-set (${online_count} online runners)"
-          else
-            echo 'use-runner=["ubuntu-latest"]' >> "${GITHUB_OUTPUT}"
-            echo "Selected fallback ubuntu-latest (no matching online self-hosted runners)"
-          fi
   lint:
     name: Lint (Ubuntu)
-    needs: determine-self-hosted-runner
-    runs-on: ${{ fromJson(needs.determine-self-hosted-runner.outputs.runner) }}
+    needs: choose-runner
+    runs-on: ${{ fromJson(needs.choose-runner.outputs.runner) }}
     container:
       image: golang:1.25.10@sha256:c138bff780910acf4254ab3a6f7ff0f64bbd841f27bd82bfa986fe122c109538
     env:
