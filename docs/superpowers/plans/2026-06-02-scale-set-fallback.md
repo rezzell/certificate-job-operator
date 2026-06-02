@@ -21,7 +21,7 @@ Use a `workflow_call` reusable workflow that accepts:
 - `organization`
 - `scale-set-name`
 - `fallback-runner`
-- `github-token` secret
+- `org-runners-read-token` secret
 
 The workflow should:
 - query `https://api.github.com/orgs/${organization}/actions/runners?per_page=100`
@@ -48,7 +48,7 @@ on:
         required: true
         type: string
     secrets:
-      github-token:
+      org-runners-read-token:
         required: true
     outputs:
       runner:
@@ -64,7 +64,7 @@ jobs:
       - name: Select runner target
         id: select
         env:
-          GH_TOKEN: ${{ secrets.github-token }}
+          GH_TOKEN: ${{ secrets.org-runners-read-token }}
           ORGANIZATION: ${{ inputs.organization }}
           SCALE_SET_NAME: ${{ inputs.scale-set-name }}
           FALLBACK_RUNNER: ${{ inputs.fallback-runner }}
@@ -140,7 +140,7 @@ jobs:
       scale-set-name: galleon-runner-set
       fallback-runner: ubuntu-latest
     secrets:
-      github-token: ${{ secrets.REZZELL_ORG_ADMIN_KEY }}
+      org-runners-read-token: ${{ secrets.ORG_RUNNERS_READ_TOKEN }}
 
   lint:
     name: Lint (Ubuntu)

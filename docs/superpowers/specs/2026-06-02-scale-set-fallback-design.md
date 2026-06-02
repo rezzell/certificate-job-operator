@@ -69,7 +69,7 @@ jobs:
       scale-set-name: galleon-runner-set
       fallback-runner: ubuntu-latest
     secrets:
-      github-token: ${{ secrets.REZZELL_ORG_ADMIN_KEY }}
+      org-runners-read-token: ${{ secrets.ORG_RUNNERS_READ_TOKEN }}
 
   lint:
     needs: choose-runner
