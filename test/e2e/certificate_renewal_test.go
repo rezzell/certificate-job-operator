@@ -217,7 +217,8 @@ func ensureCmctlBinary() string {
 	}
 
 	Expect(os.MkdirAll(binDir, 0o755)).To(Succeed())
-	cmd := exec.Command("bash", "-lc", fmt.Sprintf("GOBIN=%s go install github.com/cert-manager/cmctl/v2@%s", binDir, cmctlVersion))
+	cmd := exec.Command("go", "install", "github.com/cert-manager/cmctl/v2@"+cmctlVersion)
+	cmd.Env = append(os.Environ(), "GOBIN="+binDir)
 	_, err := utils.Run(cmd)
 	Expect(err).NotTo(HaveOccurred())
 	return cmctl
