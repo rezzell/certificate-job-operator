@@ -1,6 +1,6 @@
 module github.com/russell/certificate-job-operator
 
-go 1.25.10
+go 1.25.11
 
 require (
 	github.com/cert-manager/cert-manager v1.20.2

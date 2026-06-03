@@ -200,12 +200,11 @@ func renewCertificate(name string) {
 	_, err := utils.Run(cmd)
 	if err != nil {
 		_, _ = fmt.Fprintf(GinkgoWriter, "cmctl renew failed, falling back to secret deletion: %v\n", err)
-	}
-
-	if cert.Spec.SecretName != "" {
-		deleteCmd := exec.Command("kubectl", "delete", "secret", cert.Spec.SecretName, "-n", namespace, "--ignore-not-found=true")
-		_, err = utils.Run(deleteCmd)
-		Expect(err).NotTo(HaveOccurred())
+		if cert.Spec.SecretName != "" {
+			deleteCmd := exec.Command("kubectl", "delete", "secret", cert.Spec.SecretName, "-n", namespace, "--ignore-not-found=true")
+			_, err = utils.Run(deleteCmd)
+			Expect(err).NotTo(HaveOccurred())
+		}
 	}
 }
 

@@ -21,7 +21,7 @@ jobs:
     needs: choose-runner
     runs-on: ${{ fromJson(needs.choose-runner.outputs.runner) }}
     container:
-      image: golang:1.25.10@sha256:c138bff780910acf4254ab3a6f7ff0f64bbd841f27bd82bfa986fe122c109538
+      image: golang:1.25.11
     env:
       HOME: /tmp/certjob-home
       XDG_CACHE_HOME: /tmp/certjob-cache
