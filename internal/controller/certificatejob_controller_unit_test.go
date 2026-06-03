@@ -248,6 +248,28 @@ func TestBuildInputHashIncludesWorkflowSpecHash(t *testing.T) {
 	}
 }
 
+func TestCertificateJobStatusDeepCopyIsIndependent(t *testing.T) {
+	t.Parallel()
+
+	original := certificatesv1alpha1.CertificateJobStatus{
+		ObservedCertificates: []certificatesv1alpha1.CertificateExecutionState{{
+			Namespace: "default",
+			Name:      "renewal-cert",
+			Nodes: []certificatesv1alpha1.WorkflowNodeState{{
+				Name:  "verify-secret",
+				Phase: certificatesv1alpha1.ExecutionPhasePending,
+			}},
+		}},
+	}
+
+	snapshot := original.DeepCopy()
+	original.ObservedCertificates[0].Nodes[0].Phase = certificatesv1alpha1.ExecutionPhaseSucceeded
+
+	if snapshot.ObservedCertificates[0].Nodes[0].Phase != certificatesv1alpha1.ExecutionPhasePending {
+		t.Fatalf("deep copy should not share nested node state")
+	}
+}
+
 func TestSanitizeDNS1123(t *testing.T) {
 	t.Parallel()
 

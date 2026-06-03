@@ -81,10 +81,10 @@ func (r *CertificateJobReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	baseStatus := certificateJob.Status
+	baseStatus := certificateJob.Status.DeepCopy()
 	result, reconcileErr := r.reconcileCertificateJob(ctx, certificateJob)
 
-	if !equalCertificateJobStatus(baseStatus, certificateJob.Status) {
+	if !equalCertificateJobStatus(*baseStatus, certificateJob.Status) {
 		if err := r.Status().Update(ctx, certificateJob); err != nil {
 			log.Error(err, "unable to update CertificateJob status")
 			return ctrl.Result{}, err
