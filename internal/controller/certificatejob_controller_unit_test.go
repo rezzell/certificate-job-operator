@@ -248,6 +248,28 @@ func TestBuildInputHashIncludesWorkflowSpecHash(t *testing.T) {
 	}
 }
 
+func TestCertificateJobStatusDeepCopyIsIndependent(t *testing.T) {
+	t.Parallel()
+
+	original := certificatesv1alpha1.CertificateJobStatus{
+		ObservedCertificates: []certificatesv1alpha1.CertificateExecutionState{{
+			Namespace: "default",
+			Name:      "renewal-cert",
+			Nodes: []certificatesv1alpha1.WorkflowNodeState{{
+				Name:  "verify-secret",
+				Phase: certificatesv1alpha1.ExecutionPhasePending,
+			}},
+		}},
+	}
+
+	snapshot := original.DeepCopy()
+	original.ObservedCertificates[0].Nodes[0].Phase = certificatesv1alpha1.ExecutionPhaseSucceeded
+
+	if snapshot.ObservedCertificates[0].Nodes[0].Phase != certificatesv1alpha1.ExecutionPhasePending {
+		t.Fatalf("deep copy should not share nested node state")
+	}
+}
+
 func TestSanitizeDNS1123(t *testing.T) {
 	t.Parallel()
 
@@ -525,6 +547,8 @@ func TestValidateReservedLabels(t *testing.T) {
 func TestInjectCertificateSecret(t *testing.T) {
 	t.Parallel()
 
+	const secretName = "tls-secret"
+
 	spec := &batchv1.JobSpec{
 		Template: corev1.PodTemplateSpec{
 			Spec: corev1.PodSpec{
@@ -540,13 +564,13 @@ func TestInjectCertificateSecret(t *testing.T) {
 		},
 	}
 
-	injectCertificateSecret(spec, "tls-secret")
+	injectCertificateSecret(spec, secretName)
 
 	if len(spec.Template.Spec.Volumes) != 1 {
 		t.Fatalf("expected 1 volume, got %d", len(spec.Template.Spec.Volumes))
 	}
-	if spec.Template.Spec.Volumes[0].Secret == nil || spec.Template.Spec.Volumes[0].Secret.SecretName != "tls-secret" {
-		t.Fatalf("expected secret volume to reference tls-secret")
+	if spec.Template.Spec.Volumes[0].Secret == nil || spec.Template.Spec.Volumes[0].Secret.SecretName != secretName {
+		t.Fatalf("expected secret volume to reference %s", secretName)
 	}
 	if len(spec.Template.Spec.Containers[0].VolumeMounts) != 1 {
 		t.Fatalf("expected secret mount on main container")
@@ -555,8 +579,10 @@ func TestInjectCertificateSecret(t *testing.T) {
 		t.Fatalf("expected mount path %q, got %q", secretMountPath, spec.Template.Spec.Containers[0].VolumeMounts[0].MountPath)
 	}
 
-	injectCertificateSecret(spec, "tls-secret-updated")
-	if spec.Template.Spec.Volumes[0].Secret == nil || spec.Template.Spec.Volumes[0].Secret.SecretName != "tls-secret-updated" {
+	const updatedSecretName = "tls-secret-updated"
+
+	injectCertificateSecret(spec, updatedSecretName)
+	if spec.Template.Spec.Volumes[0].Secret == nil || spec.Template.Spec.Volumes[0].Secret.SecretName != updatedSecretName {
 		t.Fatalf("expected existing secret volume to be updated")
 	}
 }

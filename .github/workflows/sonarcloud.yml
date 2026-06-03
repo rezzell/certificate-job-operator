@@ -48,12 +48,14 @@ jobs:
         if: ${{ env.SONAR_TOKEN != '' }}
         uses: SonarSource/sonarqube-scan-action@55e44800a8f495208cce6e4e82f5dedb45fcf0ef # v7.2.0
         with:
+          scannerVersion: 8.1.0.6389
           args: >
             -Dsonar.organization=${{ steps.sonar-identifiers.outputs.organization }}
             -Dsonar.projectKey=${{ steps.sonar-identifiers.outputs.project_key }}
             -Dsonar.go.coverage.reportPaths=cover.out
             -Dsonar.qualitygate.wait=true
             -Dsonar.qualitygate.timeout=300
+            -Dsonar.projectVersion=${{ github.ref_name }}
 
       - name: Skip scan when SONAR_TOKEN is unset
         if: ${{ env.SONAR_TOKEN == '' }}
