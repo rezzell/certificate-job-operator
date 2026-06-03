@@ -50,12 +50,19 @@ jobs:
   release:
     needs: choose-runner
     runs-on: ${{ fromJson(needs.choose-runner.outputs.runner) }}
+    container:
+      image: golang:1.25.11
     env:
+      HOME: /tmp/certjob-home
+      XDG_CACHE_HOME: /tmp/certjob-cache
       GOCACHE: /tmp/certjob-go-build-cache
       GOMODCACHE: /tmp/certjob-go-mod-cache
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Prepare cache directories
+        run: mkdir -p /tmp/certjob-home /tmp/certjob-cache /tmp/certjob-go-build-cache /tmp/certjob-go-mod-cache
 
       - name: Detect OLM component changes
         id: changes
