@@ -521,6 +521,13 @@ func isRetryableDeployError(err error) bool {
 	message := err.Error()
 	return strings.Contains(message, `failed calling webhook "webhook.cert-manager.io"`) ||
 		strings.Contains(message, "x509: certificate signed by unknown authority") ||
+		strings.Contains(message, "context deadline exceeded") ||
+		strings.Contains(message, "the server is currently unable to handle the request") ||
+		strings.Contains(message, "the server could not find the requested resource") ||
+		strings.Contains(message, "Internal error occurred") ||
+		strings.Contains(message, "connection refused") ||
+		strings.Contains(message, "no endpoints available for service") ||
+		strings.Contains(message, "TLS handshake timeout") ||
 		strings.Contains(message, "the server could not find the requested resource (post certificates.cert-manager.io)") ||
 		strings.Contains(message, "the server could not find the requested resource (post issuers.cert-manager.io)") ||
 		strings.Contains(message, "resource mapping not found") ||

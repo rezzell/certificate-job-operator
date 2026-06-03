@@ -32,6 +32,16 @@ func TestIsRetryableDeployError(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "matches transient api server overload",
+			err:  errors.New("the server is currently unable to handle the request"),
+			want: true,
+		},
+		{
+			name: "matches webhook transport timeout",
+			err:  errors.New("context deadline exceeded"),
+			want: true,
+		},
+		{
 			name: "rejects unrelated error",
 			err:  errors.New("boom"),
 			want: false,
