@@ -52,6 +52,9 @@ jobs:
     runs-on: ${{ fromJson(needs.choose-runner.outputs.runner) }}
     container:
       image: golang:1.25.11
+    defaults:
+      run:
+        shell: bash
     env:
       HOME: /tmp/certjob-home
       XDG_CACHE_HOME: /tmp/certjob-cache

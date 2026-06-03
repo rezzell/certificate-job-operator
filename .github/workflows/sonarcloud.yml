@@ -39,7 +39,10 @@ jobs:
           SONAR_PROJECT_KEY_VAR: ${{ vars.SONAR_PROJECT_KEY }}
         run: |
           organization="${SONAR_ORGANIZATION_VAR:-${GITHUB_REPOSITORY_OWNER}}"
-          project_key="${SONAR_PROJECT_KEY_VAR:-${GITHUB_REPOSITORY//\//_}}"
+          project_key="${SONAR_PROJECT_KEY_VAR:-}"
+          if [ -z "${project_key}" ]; then
+            project_key="$(printf '%s' "${GITHUB_REPOSITORY}" | tr '/' '_')"
+          fi
           echo "organization=${organization}" >> "${GITHUB_OUTPUT}"
           echo "project_key=${project_key}" >> "${GITHUB_OUTPUT}"
 
