@@ -39,12 +39,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-go-e2e-
 
-      - name: Setup Go
-        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
-        with:
-          go-version-file: go.mod
-          check-latest: true
-
       - name: Install the latest version of kind
         run: |
           curl --proto '=https' --tlsv1.2 --fail --show-error --location --output ./kind https://kind.sigs.k8s.io/dl/v0.30.0/kind-linux-amd64
