@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  choose-runner:
+    uses: rezzell/.github/.github/workflows/choose-runner.yml@b16e70c8bd989dfb4c7c0f91728fdd813f0982ce
+    with:
+      organization: rezzell
+      scale-set-name: preferred-runner-set
+      fallback-runner: ubuntu-latest
+    secrets:
+      org-runners-read-token: ${{ secrets.ORG_RUNNERS_READ_TOKEN }}
+
+  lint:
+    name: Lint (Ubuntu)
+    needs: choose-runner
+    uses: ./.github/workflows/lint.yml
+    with:
+      runner_json: ${{ needs.choose-runner.outputs.runner }}
+    secrets: inherit
+
+  tests:
+    name: Tests (Ubuntu)
+    needs: choose-runner
+    uses: ./.github/workflows/test.yml
+    with:
+      runner_json: ${{ needs.choose-runner.outputs.runner }}
+    secrets: inherit
+
+  e2e:
+    name: E2E Tests (Ubuntu)
+    needs: choose-runner
+    uses: ./.github/workflows/test-e2e.yml
+    with:
+      runner_json: ${{ needs.choose-runner.outputs.runner }}
+    secrets: inherit
+
+  security:
+    name: Security
+    needs: choose-runner
+    uses: ./.github/workflows/security.yml
+    with:
+      runner_json: ${{ needs.choose-runner.outputs.runner }}
+    secrets: inherit
+
+  sonarcloud:
+    name: SonarCloud Scan
+    needs: choose-runner
+    uses: ./.github/workflows/sonarcloud.yml
+    with:
+      runner_json: ${{ needs.choose-runner.outputs.runner }}
+    secrets: inherit
+
+  actionlint:
+    name: Validate GitHub Workflows
+    needs: choose-runner
+    uses: ./.github/workflows/actionlint.yml
+    with:
+      runner_json: ${{ needs.choose-runner.outputs.runner }}
+    secrets: inherit

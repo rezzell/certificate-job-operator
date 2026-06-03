@@ -1,25 +1,20 @@
 name: Lint
 
 on:
-  push:
-    branches:
-      - main
-  pull_request:
+  workflow_call:
+    inputs:
+      runner_json:
+        description: JSON encoded runner selection from choose-runner
+        required: true
+        type: string
+
+permissions:
+  contents: read
 
 jobs:
-  choose-runner:
-    uses: rezzell/.github/.github/workflows/choose-runner.yml@b16e70c8bd989dfb4c7c0f91728fdd813f0982ce
-    with:
-      organization: rezzell
-      scale-set-name: preferred-runner-set
-      fallback-runner: ubuntu-latest
-    secrets:
-      org-runners-read-token: ${{ secrets.ORG_RUNNERS_READ_TOKEN }}
-
   lint:
-    name: Lint (Ubuntu)
-    needs: choose-runner
-    runs-on: ${{ fromJson(needs.choose-runner.outputs.runner) }}
+    name: lint
+    runs-on: ${{ fromJson(inputs.runner_json) }}
     container:
       image: golang:1.25.11
     env:

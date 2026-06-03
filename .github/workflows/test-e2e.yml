@@ -1,15 +1,20 @@
 name: E2E Tests
 
 on:
-  push:
-    branches:
-      - main
-  pull_request:
+  workflow_call:
+    inputs:
+      runner_json:
+        description: JSON encoded runner selection from choose-runner
+        required: true
+        type: string
+
+permissions:
+  contents: read
 
 jobs:
   test-e2e:
-    name: E2E Tests (Ubuntu)
-    runs-on: ubuntu-latest
+    name: test-e2e
+    runs-on: ${{ fromJson(inputs.runner_json) }}
     steps:
       - name: Clone the code
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4

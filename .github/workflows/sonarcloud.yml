@@ -1,18 +1,20 @@
 name: SonarCloud
 
 on:
-  push:
-    branches:
-      - main
-  pull_request:
+  workflow_call:
+    inputs:
+      runner_json:
+        description: JSON encoded runner selection from choose-runner
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 jobs:
   scan:
-    name: SonarCloud Scan
-    runs-on: ubuntu-latest
+    name: scan
+    runs-on: ${{ fromJson(inputs.runner_json) }}
     env:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
     steps:

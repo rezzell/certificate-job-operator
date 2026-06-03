@@ -131,14 +131,14 @@ Before first public release, enforce branch protection on `main`:
   - solo maintainer default: `0` required approvals
   - multi-maintainer recommended: `1+` required approvals
 - Require status checks to pass:
-  - `Lint (Ubuntu)`
-  - `Tests (Ubuntu)`
-  - `E2E Tests (Ubuntu)`
-  - `govulncheck`
-  - `gosec`
-  - `SonarCloud Scan`
+  - `Lint (Ubuntu) / lint`
+  - `Tests (Ubuntu) / test`
+  - `E2E Tests (Ubuntu) / test-e2e`
+  - `Security / govulncheck`
+  - `Security / gosec`
+  - `SonarCloud Scan / scan`
   - `SonarCloud Code Analysis`
-  - `Validate GitHub Workflows`
+  - `Validate GitHub Workflows / actionlint`
 - Restrict direct pushes to `main`
 
 Repository automation:
