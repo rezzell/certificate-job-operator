@@ -15,13 +15,12 @@ jobs:
   test-e2e:
     name: test-e2e
     runs-on: ${{ fromJson(inputs.runner_json) }}
-    container:
-      image: golang:1.25.11
     env:
       HOME: /tmp/certjob-home
       XDG_CACHE_HOME: /tmp/certjob-cache
       GOCACHE: /tmp/certjob-go-build-cache
       GOMODCACHE: /tmp/certjob-go-mod-cache
+      GOFLAGS: -buildvcs=false
     steps:
       - name: Clone the code
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -38,6 +37,12 @@ jobs:
           key: ${{ runner.os }}-go-e2e-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-e2e-
+
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
 
       - name: Install the latest version of kind
         run: |
