@@ -8,7 +8,7 @@ on:
 
 jobs:
   choose-runner:
-    uses: rezzell/.github/.github/workflows/choose-runner.yml@4f3cdab68077dadda7d337a35e4a4119fbb38475
+    uses: rezzell/.github/.github/workflows/choose-runner.yml@2729a0352a20ce3ae3a1ecf8116f2da31029d8ea
     with:
       organization: rezzell
       scale-set-name: preferred-runner-set
