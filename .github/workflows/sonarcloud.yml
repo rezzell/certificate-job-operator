@@ -44,6 +44,18 @@ jobs:
           GOMODCACHE: /tmp/certjob-go-mod-cache
         run: make test
 
+      - name: Install unzip
+        run: |
+          if ! command -v unzip >/dev/null 2>&1; then
+            if command -v sudo >/dev/null 2>&1; then
+              sudo apt-get update
+              sudo apt-get install -y unzip
+            else
+              apt-get update
+              apt-get install -y unzip
+            fi
+          fi
+
       - name: SonarCloud scan
         if: ${{ env.SONAR_TOKEN != '' }}
         uses: SonarSource/sonarqube-scan-action@55e44800a8f495208cce6e4e82f5dedb45fcf0ef # v7.2.0
