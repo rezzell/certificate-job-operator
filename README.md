@@ -260,6 +260,14 @@ The project now has separate release workflows so operator, OLM artifacts, and H
 - Helm chart release (OCI): `.github/workflows/release-helm.yml`
   - Trigger tag: `helm-v<version>`
 
+Each release workflow also includes a path guard so a tag or manual run does not publish unchanged artifacts by accident.
+
+- Operator release runs only when operator-related paths changed (`Dockerfile`, `cmd/`, `api/`, `internal/`, runtime config, `go.mod`, `go.sum`, `PROJECT`, `Makefile`).
+- OLM release runs only when bundle, catalog, or OLM/manifests paths changed (`bundle/`, `catalog/`, `config/olm/`, `config/manifests/`, manager/RBAC/webhook/default/CRD config, `PROJECT`, `Makefile`).
+- Helm release runs only when chart-related paths changed (`charts/`, `Makefile`, or `README.md`).
+
+Manual releases can bypass those guards by setting `force_release=true` in the `workflow_dispatch` inputs.
+
 Each workflow also supports manual `workflow_dispatch` for explicit one-off releases.
 
 Full release runbook (tag naming, path guards, overrides): `RELEASING.md`.
