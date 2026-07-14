@@ -1,19 +1,28 @@
 name: SonarCloud
 
 on:
-  push:
-    branches:
-      - main
-  pull_request:
+  workflow_call:
+    inputs:
+      runner_json:
+        description: JSON encoded runner selection from choose-runner
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 jobs:
   scan:
-    name: SonarCloud Scan
-    runs-on: ubuntu-latest
+    name: scan
+    runs-on: ${{ fromJson(inputs.runner_json) }}
+    container:
+      image: golang:1.25.12
     env:
+      HOME: /tmp/certjob-home
+      XDG_CACHE_HOME: /tmp/certjob-cache
+      GOCACHE: /tmp/certjob-go-build-cache
+      GOMODCACHE: /tmp/certjob-go-mod-cache
+      GOFLAGS: -buildvcs=false
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
     steps:
       - name: Checkout
@@ -21,11 +30,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Go
-        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
-        with:
-          go-version-file: go.mod
-          check-latest: true
+      - name: Prepare cache directories
+        run: mkdir -p /tmp/certjob-home /tmp/certjob-cache /tmp/certjob-go-build-cache /tmp/certjob-go-mod-cache
 
       - name: Resolve SonarCloud identifiers
         id: sonar-identifiers
@@ -34,7 +40,10 @@ jobs:
           SONAR_PROJECT_KEY_VAR: ${{ vars.SONAR_PROJECT_KEY }}
         run: |
           organization="${SONAR_ORGANIZATION_VAR:-${GITHUB_REPOSITORY_OWNER}}"
-          project_key="${SONAR_PROJECT_KEY_VAR:-${GITHUB_REPOSITORY//\//_}}"
+          project_key="${SONAR_PROJECT_KEY_VAR:-}"
+          if [ -z "${project_key}" ]; then
+            project_key="$(printf '%s' "${GITHUB_REPOSITORY}" | tr '/' '_')"
+          fi
           echo "organization=${organization}" >> "${GITHUB_OUTPUT}"
           echo "project_key=${project_key}" >> "${GITHUB_OUTPUT}"
 

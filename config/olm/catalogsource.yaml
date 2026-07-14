@@ -5,7 +5,7 @@ metadata:
   namespace: openshift-marketplace
 spec:
   sourceType: grpc
-  image: rezzell.com/certificate-job-operator-catalog:v0.1.0
+  image: ghcr.io/rezzell/certificate-job-operator-catalog:v0.1.0
   displayName: Certificate Job Operator Catalog
   publisher: certificate-job-operator
   updateStrategy:

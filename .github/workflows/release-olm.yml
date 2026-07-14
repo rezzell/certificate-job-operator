@@ -31,21 +31,61 @@ on:
         default: false
         type: boolean
 
-permissions:
-  actions: read
-  contents: read
-  packages: write
-  id-token: write
+permissions: {}
 
 jobs:
-  release:
+  runner-config:
+    name: Runner Config
     runs-on: ubuntu-latest
+    outputs:
+      scale-set-name: ${{ steps.config.outputs.scale-set-name }}
+    steps:
+      - name: Resolve runner set name
+        id: config
+        env:
+          RUNNER_SCALE_SET_NAME: ${{ vars.RUNNER_SCALE_SET_NAME }}
+          FALLBACK_RUNNER: ubuntu-latest
+        run: |
+          set -euo pipefail
+          echo "scale-set-name=${RUNNER_SCALE_SET_NAME:-${FALLBACK_RUNNER}}" >> "${GITHUB_OUTPUT}"
+
+  choose-runner:
+    needs: runner-config
+    uses: rezzell/.github/.github/workflows/choose-runner.yml@2729a0352a20ce3ae3a1ecf8116f2da31029d8ea
+    permissions:
+      contents: read
+    with:
+      organization: rezzell
+      scale-set-name: ${{ needs.runner-config.outputs.scale-set-name }}
+      fallback-runner: ubuntu-latest
+    secrets:
+      org-runners-read-token: ${{ secrets.ORG_RUNNERS_READ_TOKEN }}
+
+  release:
+    needs: choose-runner
+    permissions:
+      actions: read
+      contents: read
+      packages: write
+      id-token: write
+    runs-on: ${{ fromJson(needs.choose-runner.outputs.runner) }}
+    container:
+      image: golang:1.25.12
+    defaults:
+      run:
+        shell: bash
     env:
+      HOME: /tmp/certjob-home
+      XDG_CACHE_HOME: /tmp/certjob-cache
       GOCACHE: /tmp/certjob-go-build-cache
       GOMODCACHE: /tmp/certjob-go-mod-cache
+      GOFLAGS: -buildvcs=false
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Prepare cache directories
+        run: mkdir -p /tmp/certjob-home /tmp/certjob-cache /tmp/certjob-go-build-cache /tmp/certjob-go-mod-cache
 
       - name: Detect OLM component changes
         id: changes
@@ -82,13 +122,6 @@ jobs:
       - name: Release guard status
         if: steps.changes.outputs.should_release != 'true'
         run: echo "Skipping OLM release; no OLM component paths changed. Use force_release=true to override."
-
-      - name: Setup Go
-        if: steps.changes.outputs.should_release == 'true'
-        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
-        with:
-          go-version-file: go.mod
-          check-latest: true
 
       - name: Resolve release metadata
         if: steps.changes.outputs.should_release == 'true'

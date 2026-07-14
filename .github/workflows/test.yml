@@ -1,24 +1,44 @@
 name: Tests
 
 on:
-  push:
-    branches:
-      - main
-  pull_request:
+  workflow_call:
+    inputs:
+      runner_json:
+        description: JSON encoded runner selection from choose-runner
+        required: true
+        type: string
+
+permissions:
+  contents: read
 
 jobs:
   test:
-    name: Tests (Ubuntu)
-    runs-on: ubuntu-latest
+    name: test
+    runs-on: ${{ fromJson(inputs.runner_json) }}
+    container:
+      image: golang:1.25.12
+    env:
+      HOME: /tmp/certjob-home
+      XDG_CACHE_HOME: /tmp/certjob-cache
+      GOCACHE: /tmp/certjob-go-build-cache
+      GOMODCACHE: /tmp/certjob-go-mod-cache
+      GOFLAGS: -buildvcs=false
     steps:
       - name: Clone the code
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      - name: Setup Go
-        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+      - name: Prepare cache directories
+        run: mkdir -p /tmp/certjob-home /tmp/certjob-cache /tmp/certjob-go-build-cache /tmp/certjob-go-mod-cache
+
+      - name: Cache Go build and module directories
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
-          go-version-file: go.mod
-          check-latest: true
+          path: |
+            /tmp/certjob-go-build-cache
+            /tmp/certjob-go-mod-cache
+          key: ${{ runner.os }}-go-test-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-test-
 
       - name: Running Tests
         run: |

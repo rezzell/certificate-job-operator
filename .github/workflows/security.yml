@@ -1,21 +1,24 @@
 name: Security
 
 on:
-  push:
-    branches:
-      - main
-  pull_request:
+  workflow_call:
+    inputs:
+      runner_json:
+        description: JSON encoded runner selection from choose-runner
+        required: true
+        type: string
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
   dependency-review:
+    name: dependency-review
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: read
+    runs-on: ${{ fromJson(inputs.runner_json) }}
+    container:
+      image: golang:1.25.12
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -25,16 +28,22 @@ jobs:
         uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
 
   govulncheck:
-    runs-on: ubuntu-latest
+    name: govulncheck
+    runs-on: ${{ fromJson(inputs.runner_json) }}
+    container:
+      image: golang:1.25.12
+    env:
+      HOME: /tmp/certjob-home
+      XDG_CACHE_HOME: /tmp/certjob-cache
+      GOCACHE: /tmp/certjob-go-build-cache
+      GOMODCACHE: /tmp/certjob-go-mod-cache
+      GOFLAGS: -buildvcs=false
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      - name: Setup Go
-        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
-        with:
-          go-version-file: go.mod
-          check-latest: true
+      - name: Prepare cache directories
+        run: mkdir -p /tmp/certjob-home /tmp/certjob-cache /tmp/certjob-go-build-cache /tmp/certjob-go-mod-cache
 
       - name: Run govulncheck
         run: |
@@ -42,16 +51,22 @@ jobs:
           govulncheck ./...
 
   gosec:
-    runs-on: ubuntu-latest
+    name: gosec
+    runs-on: ${{ fromJson(inputs.runner_json) }}
+    container:
+      image: golang:1.25.12
+    env:
+      HOME: /tmp/certjob-home
+      XDG_CACHE_HOME: /tmp/certjob-cache
+      GOCACHE: /tmp/certjob-go-build-cache
+      GOMODCACHE: /tmp/certjob-go-mod-cache
+      GOFLAGS: -buildvcs=false
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      - name: Setup Go
-        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
-        with:
-          go-version-file: go.mod
-          check-latest: true
+      - name: Prepare cache directories
+        run: mkdir -p /tmp/certjob-home /tmp/certjob-cache /tmp/certjob-go-build-cache /tmp/certjob-go-mod-cache
 
       - name: Run gosec
         run: |

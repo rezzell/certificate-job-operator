@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  runner-config:
+    name: Runner Config
+    runs-on: ubuntu-latest
+    outputs:
+      scale-set-name: ${{ steps.config.outputs.scale-set-name }}
+    steps:
+      - name: Resolve runner set name
+        id: config
+        env:
+          RUNNER_SCALE_SET_NAME: ${{ vars.RUNNER_SCALE_SET_NAME }}
+          FALLBACK_RUNNER: ubuntu-latest
+        run: |
+          set -euo pipefail
+          echo "scale-set-name=${RUNNER_SCALE_SET_NAME:-${FALLBACK_RUNNER}}" >> "${GITHUB_OUTPUT}"
+
+  choose-runner:
+    needs: runner-config
+    uses: rezzell/.github/.github/workflows/choose-runner.yml@2729a0352a20ce3ae3a1ecf8116f2da31029d8ea
+    with:
+      organization: rezzell
+      scale-set-name: ${{ needs.runner-config.outputs.scale-set-name }}
+      fallback-runner: ubuntu-latest
+    secrets:
+      org-runners-read-token: ${{ secrets.ORG_RUNNERS_READ_TOKEN }}
+
+  lint:
+    name: Lint (Ubuntu)
+    needs: choose-runner
+    uses: ./.github/workflows/lint.yml
+    with:
+      runner_json: ${{ needs.choose-runner.outputs.runner }}
+    secrets: inherit
+
+  tests:
+    name: Tests (Ubuntu)
+    needs: choose-runner
+    uses: ./.github/workflows/test.yml
+    with:
+      runner_json: ${{ needs.choose-runner.outputs.runner }}
+    secrets: inherit
+
+  e2e:
+    name: E2E Tests (Ubuntu)
+    needs: choose-runner
+    uses: ./.github/workflows/test-e2e.yml
+    with:
+      runner_json: ${{ needs.choose-runner.outputs.runner }}
+    secrets: inherit
+
+  security:
+    name: Security
+    needs: choose-runner
+    uses: ./.github/workflows/security.yml
+    with:
+      runner_json: ${{ needs.choose-runner.outputs.runner }}
+    secrets: inherit
+
+  sonarcloud:
+    name: SonarCloud Scan
+    needs: choose-runner
+    uses: ./.github/workflows/sonarcloud.yml
+    with:
+      runner_json: ${{ needs.choose-runner.outputs.runner }}
+    secrets: inherit
+
+  actionlint:
+    name: Validate GitHub Workflows
+    needs: choose-runner
+    uses: ./.github/workflows/actionlint.yml
+    with:
+      runner_json: ${{ needs.choose-runner.outputs.runner }}
+    secrets: inherit
