@@ -137,7 +137,7 @@ jobs:
     uses: rezzell/.github/.github/workflows/choose-runner.yml@main
     with:
       organization: rezzell
-      scale-set-name: galleon-runner-set
+      scale-set-name: preferred-runner-set
       fallback-runner: ubuntu-latest
     secrets:
       org-runners-read-token: ${{ secrets.ORG_RUNNERS_READ_TOKEN }}
@@ -207,7 +207,7 @@ Push the consumer repository branch containing the updated `lint.yml`.
 - [ ] **Step 3: Run the lint workflow on a pull request and inspect the runner-selection output**
 
 Expected behavior:
-- when the scale set has at least one online runner visible to GitHub, the `choose-runner` job outputs `["galleon-runner-set"]`
+- when the scale set has at least one online runner visible to GitHub, the `choose-runner` job outputs `["preferred-runner-set"]`
 - when no matching online runner is visible, the `choose-runner` job outputs `["ubuntu-latest"]`
 - the `lint` job still runs inside the pinned Go container and uses the cache paths
 
