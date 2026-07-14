@@ -26,12 +26,7 @@ on:
         default: false
         type: boolean
 
-permissions:
-  actions: read
-  contents: read
-  packages: write
-  id-token: write
-  attestations: write
+permissions: {}
 
 jobs:
   runner-config:
@@ -52,6 +47,8 @@ jobs:
   choose-runner:
     needs: runner-config
     uses: rezzell/.github/.github/workflows/choose-runner.yml@2729a0352a20ce3ae3a1ecf8116f2da31029d8ea
+    permissions:
+      contents: read
     with:
       organization: rezzell
       scale-set-name: ${{ needs.runner-config.outputs.scale-set-name }}
@@ -61,6 +58,12 @@ jobs:
 
   release:
     needs: choose-runner
+    permissions:
+      actions: read
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
     runs-on: ${{ fromJson(needs.choose-runner.outputs.runner) }}
     container:
       image: golang:1.25.12
