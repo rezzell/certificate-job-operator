@@ -69,8 +69,6 @@ jobs:
       packages: write
       id-token: write
     runs-on: ${{ fromJson(needs.choose-runner.outputs.runner) }}
-    container:
-      image: golang:1.25.12
     defaults:
       run:
         shell: bash
