@@ -69,8 +69,6 @@ jobs:
       packages: write
       id-token: write
     runs-on: ${{ fromJson(needs.choose-runner.outputs.runner) }}
-    container:
-      image: golang:1.25.12
     defaults:
       run:
         shell: bash
@@ -83,6 +81,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
 
       - name: Prepare cache directories
         run: mkdir -p /tmp/certjob-home /tmp/certjob-cache /tmp/certjob-go-build-cache /tmp/certjob-go-mod-cache
