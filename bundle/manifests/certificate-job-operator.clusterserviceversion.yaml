@@ -79,7 +79,7 @@ metadata:
         }
       ]
     capabilities: Basic Install
-    createdAt: "2026-04-30T04:25:47Z"
+    createdAt: "2026-07-14T03:03:46Z"
     operators.operatorframework.io/builder: operator-sdk-v1.42.2
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v4
   name: certificate-job-operator.v0.1.0
@@ -152,7 +152,7 @@ spec:
                   valueFrom:
                     fieldRef:
                       fieldPath: metadata.annotations['olm.targetNamespaces']
-                image: ghcr.io/example/certificate-job-operator:v0.1.0
+                image: ghcr.io/rezzell/certificate-job-operator:v0.1.0
                 livenessProbe:
                   httpGet:
                     path: /healthz

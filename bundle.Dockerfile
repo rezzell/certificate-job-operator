@@ -19,6 +19,3 @@ LABEL operators.operatorframework.io.test.config.v1=tests/scorecard/
 COPY bundle/manifests /manifests/
 COPY bundle/metadata /metadata/
 COPY bundle/tests/scorecard /tests/scorecard/
-
-# Drop root privileges for image consumers.
-USER 65532:65532
