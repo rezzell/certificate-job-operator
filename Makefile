@@ -376,6 +376,7 @@ bundle: manifests kustomize operator-sdk ## Generate bundle manifests and metada
 	$(OPERATOR_SDK) generate kustomize manifests -q --interactive=false --package=certificate-job-operator
 	cd config/manager && $(KUSTOMIZE) edit set image controller=$(IMG)
 	$(KUSTOMIZE) build config/manifests | $(OPERATOR_SDK) generate bundle $(BUNDLE_GEN_FLAGS)
+	printf '\n# Drop root privileges for image consumers.\nUSER 65532:65532\n' >> bundle.Dockerfile
 	$(OPERATOR_SDK) bundle validate ./bundle
 
 .PHONY: bundle-build
