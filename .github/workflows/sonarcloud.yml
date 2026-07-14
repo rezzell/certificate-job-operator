@@ -16,7 +16,7 @@ jobs:
     name: scan
     runs-on: ${{ fromJson(inputs.runner_json) }}
     container:
-      image: golang:1.25.11
+      image: golang:1.25.12
     env:
       HOME: /tmp/certjob-home
       XDG_CACHE_HOME: /tmp/certjob-cache
@@ -52,6 +52,18 @@ jobs:
           GOCACHE: /tmp/certjob-go-build-cache
           GOMODCACHE: /tmp/certjob-go-mod-cache
         run: make test
+
+      - name: Install unzip
+        run: |
+          if ! command -v unzip >/dev/null 2>&1; then
+            if command -v sudo >/dev/null 2>&1; then
+              sudo apt-get update
+              sudo apt-get install -y unzip
+            else
+              apt-get update
+              apt-get install -y unzip
+            fi
+          fi
 
       - name: SonarCloud scan
         if: ${{ env.SONAR_TOKEN != '' }}

@@ -16,7 +16,7 @@ jobs:
     name: lint
     runs-on: ${{ fromJson(inputs.runner_json) }}
     container:
-      image: golang:1.25.11
+      image: golang:1.25.12
     env:
       HOME: /tmp/certjob-home
       XDG_CACHE_HOME: /tmp/certjob-cache

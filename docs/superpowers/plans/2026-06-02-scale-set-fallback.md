@@ -78,7 +78,7 @@ jobs:
             body_file="$(mktemp)"
             trap 'rm -f "${headers_file}" "${body_file}"' EXIT
 
-            curl -fsSL \
+            curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL \
               -H "Authorization: Bearer ${GH_TOKEN}" \
               -H "Accept: application/vnd.github+json" \
               -D "${headers_file}" \
@@ -133,11 +133,23 @@ Use this structure:
 
 ```yaml
 jobs:
+  runner-config:
+    runs-on: ubuntu-latest
+    outputs:
+      scale-set-name: ${{ steps.config.outputs.scale-set-name }}
+    steps:
+      - id: config
+        env:
+          RUNNER_SCALE_SET_NAME: ${{ vars.RUNNER_SCALE_SET_NAME }}
+          FALLBACK_RUNNER: ubuntu-latest
+        run: echo "scale-set-name=${RUNNER_SCALE_SET_NAME:-${FALLBACK_RUNNER}}" >> "${GITHUB_OUTPUT}"
+
   choose-runner:
+    needs: runner-config
     uses: rezzell/.github/.github/workflows/choose-runner.yml@main
     with:
       organization: rezzell
-      scale-set-name: preferred-runner-set
+      scale-set-name: ${{ needs.runner-config.outputs.scale-set-name }}
       fallback-runner: ubuntu-latest
     secrets:
       org-runners-read-token: ${{ secrets.ORG_RUNNERS_READ_TOKEN }}
@@ -207,7 +219,7 @@ Push the consumer repository branch containing the updated `lint.yml`.
 - [ ] **Step 3: Run the lint workflow on a pull request and inspect the runner-selection output**
 
 Expected behavior:
-- when the scale set has at least one online runner visible to GitHub, the `choose-runner` job outputs `["preferred-runner-set"]`
+- when `RUNNER_SCALE_SET_NAME` is configured and that scale set has at least one online runner visible to GitHub, the `choose-runner` job outputs the configured runner label
 - when no matching online runner is visible, the `choose-runner` job outputs `["ubuntu-latest"]`
 - the `lint` job still runs inside the pinned Go container and uses the cache paths
 
