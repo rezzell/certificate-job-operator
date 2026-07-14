@@ -62,11 +62,23 @@ Example shape:
 
 ```yaml
 jobs:
+  runner-config:
+    runs-on: ubuntu-latest
+    outputs:
+      scale-set-name: ${{ steps.config.outputs.scale-set-name }}
+    steps:
+      - id: config
+        env:
+          RUNNER_SCALE_SET_NAME: ${{ vars.RUNNER_SCALE_SET_NAME }}
+          FALLBACK_RUNNER: ubuntu-latest
+        run: echo "scale-set-name=${RUNNER_SCALE_SET_NAME:-${FALLBACK_RUNNER}}" >> "${GITHUB_OUTPUT}"
+
   choose-runner:
+    needs: runner-config
     uses: rezzell/.github/.github/workflows/choose-runner.yml@main
     with:
       organization: rezzell
-      scale-set-name: preferred-runner-set
+      scale-set-name: ${{ needs.runner-config.outputs.scale-set-name }}
       fallback-runner: ubuntu-latest
     secrets:
       org-runners-read-token: ${{ secrets.ORG_RUNNERS_READ_TOKEN }}

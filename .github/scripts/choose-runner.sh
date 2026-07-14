@@ -7,7 +7,6 @@ token="${GH_TOKEN:-}"
 organization="${ORGANIZATION:?ORGANIZATION is required}"
 scale_set_name="${SCALE_SET_NAME:?SCALE_SET_NAME is required}"
 fallback_runner="${FALLBACK_RUNNER:?FALLBACK_RUNNER is required}"
-public_runner_set_alias="preferred-runner-set"
 
 log() {
   printf '%s\n' "$*" >&2
@@ -79,7 +78,7 @@ fetch_all_runners() {
     headers_file="$(mktemp)"
     body_file="$(mktemp)"
 
-    curl -fsSL \
+    curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL \
       -H "Authorization: Bearer ${token}" \
       -H "Accept: application/vnd.github+json" \
       -D "${headers_file}" \
@@ -119,9 +118,9 @@ fi
 online_count="$(fetch_all_runners)"
 
 if [[ "${online_count}" -gt 0 ]]; then
-  log "Choose Runner: found ${online_count} online runner(s) for the preferred runner set; using ${public_runner_set_alias}"
+  log "Choose Runner: found ${online_count} online runner(s) for the configured runner set"
   emit_runner "${scale_set_name}"
 else
-  log "Choose Runner: found no online runners for the preferred runner set; using fallback runner ${fallback_runner}"
+  log "Choose Runner: found no online runners for the configured runner set; using fallback runner ${fallback_runner}"
   emit_runner "${fallback_runner}"
 fi
