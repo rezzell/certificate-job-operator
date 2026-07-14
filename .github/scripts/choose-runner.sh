@@ -79,7 +79,7 @@ fetch_all_runners() {
     headers_file="$(mktemp)"
     body_file="$(mktemp)"
 
-    curl -fsSL \
+    curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL \
       -H "Authorization: Bearer ${token}" \
       -H "Accept: application/vnd.github+json" \
       -D "${headers_file}" \

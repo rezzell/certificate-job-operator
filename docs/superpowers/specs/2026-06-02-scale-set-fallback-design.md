@@ -66,7 +66,7 @@ jobs:
     uses: rezzell/.github/.github/workflows/choose-runner.yml@main
     with:
       organization: rezzell
-      scale-set-name: preferred-runner-set
+      scale-set-name: galleon-runner-set
       fallback-runner: ubuntu-latest
     secrets:
       org-runners-read-token: ${{ secrets.ORG_RUNNERS_READ_TOKEN }}
