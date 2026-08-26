@@ -226,7 +226,7 @@ jobs:
 
       - name: Scan catalog image with Trivy
         if: steps.changes.outputs.should_release == 'true'
-        continue-on-error: ${{ inputs.catalog_trivy_risk_accepted == true }}
+        continue-on-error: ${{ github.event.inputs.catalog_trivy_risk_accepted == 'true' }}
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ steps.meta.outputs.catalog_image }}
@@ -237,7 +237,7 @@ jobs:
           severity: CRITICAL,HIGH
 
       - name: Catalog Trivy risk accepted
-        if: steps.changes.outputs.should_release == 'true' && inputs.catalog_trivy_risk_accepted == true
+        if: steps.changes.outputs.should_release == 'true' && github.event.inputs.catalog_trivy_risk_accepted == 'true'
         run: |
           echo "::warning::Catalog image Trivy CRITICAL/HIGH findings were explicitly accepted for this release run."
 
@@ -279,7 +279,7 @@ jobs:
           BUNDLE_IMAGE: ${{ steps.meta.outputs.bundle_image }}
           CATALOG_IMAGE: ${{ steps.meta.outputs.catalog_image }}
           OLM_ARCHIVE: ${{ steps.assets.outputs.olm_archive }}
-          CATALOG_TRIVY_RISK_ACCEPTED: ${{ inputs.catalog_trivy_risk_accepted }}
+          CATALOG_TRIVY_RISK_ACCEPTED: ${{ github.event.inputs.catalog_trivy_risk_accepted }}
         run: |
           set -euo pipefail
           cat > release-notes.md <<EOF
