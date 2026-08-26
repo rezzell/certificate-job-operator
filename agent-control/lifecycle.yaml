@@ -1,0 +1,107 @@
+version: 1
+purpose: "Lifecycle states for autonomous SDLC planning, review, and response cycles."
+
+states:
+  planning:
+    description: "Chat, issue, or spec discussion is shaping scope, acceptance criteria, and human decisions."
+  ready_for_agent_handoff:
+    description: "Accepted planning state is summarized into a bounded implementation handoff."
+  intake:
+    description: "A handoff, ticket, PR, or request exists but has not been verified."
+  handoff_received:
+    description: "The handoff was parsed and dynamic references were checked."
+  needs_planning:
+    description: "The authorized objective needs proportional planning or intent reconciliation."
+  planning_running:
+    description: "Planning, decomposition, or cross-component reconciliation is in progress."
+  blocked_on_planning_decision:
+    description: "A product, API, security, release, or architecture decision prevents implementation readiness."
+  implementation_ready:
+    description: "Approved intent, bounded scope, observable verification, and required gates are present."
+  implementation_running:
+    description: "A bounded implementation cycle is in progress."
+  implementation_integrating:
+    description: "Conjoined implementation units are being reconciled into one review candidate inside the same delivery run."
+  intra_run_checkpoint_recorded:
+    description: "A deterministic stage receipt has been produced inside one authorized run; owner systems remain authoritative."
+  needs_review:
+    description: "The change needs one or more review passes."
+  review_running:
+    description: "One or more review passes are in progress."
+  needs_fix:
+    description: "Blocking review findings require implementation changes."
+  needs_response:
+    description: "Feedback appears addressed and needs evidence-backed replies or thread disposition."
+  awaiting_pr_response:
+    description: "A secondary participant posted discussion, clarification, or decision-needed items to the pull request and cannot complete the loop until the PR author or operator responds."
+  blocked_on_human:
+    description: "A product, architecture, security, release, or authority decision is required."
+  review_complete:
+    description: "The review loop published and verified STATUS: APPROVE; pull request approval and merge gates are separate current state."
+  source_review_ready:
+    description: "Configured source-review gates are satisfied for pull request or local comparison workflow."
+  ready_to_merge:
+    description: "Required pull request approval, review gates, and checks are satisfied."
+  merge_waiting:
+    description: "Source-review merge is waiting on already-authorized gates, platform auto-merge, or short observation before a restartable merge checkpoint is resumed."
+  merged:
+    description: "The pull request merge completed in the source-review control plane."
+  ticket_updated:
+    description: "The linked GitHub issue reflects configured post-merge status and evidence when one exists."
+  completed:
+    description: "The lifecycle objective is done and evidence is recorded."
+
+sdlc_run_policy:
+  intra_run_checkpoints_enabled: true
+  run_identity: "A logical correlation across issue or scope source, branch or PR, immutable revisions, review publications, verification evidence, and handoff refs."
+  checkpoint_storage: source-review-body
+  allowed_deterministic_transitions:
+    - "ready_for_agent_handoff -> implementation_running"
+    - "implementation_running -> implementation_integrating"
+    - "implementation_integrating -> intra_run_checkpoint_recorded"
+    - "implementation_running -> intra_run_checkpoint_recorded"
+    - "intra_run_checkpoint_recorded -> needs_review"
+    - "needs_review -> review_running"
+    - "review_running -> intra_run_checkpoint_recorded"
+    - "intra_run_checkpoint_recorded -> needs_fix"
+    - "needs_fix -> implementation_running"
+    - "intra_run_checkpoint_recorded -> review_complete"
+    - "review_complete -> merge_waiting"
+    - "merge_waiting -> source_review_ready"
+    - "source_review_ready -> ready_to_merge"
+    - "ready_to_merge -> merged"
+  require_fresh_review_when:
+    - remediation changes the head revision
+    - branch synchronization rebases or merges the PR head onto the target base
+    - the checkpoint output revision differs from the reviewed revision
+    - source-review or repository state cannot verify the previous reviewed head
+  promotion_to_full_handoff:
+    - interrupted run cannot be reconstructed from checkpoints and owner systems
+    - decision or authority boundary is crossed
+    - back-to-planning transfer is needed
+    - Waiting or Blocked coordination is created
+    - project, scope, confidentiality, or independently resumable workstream changes
+    - operator engagement changes the continuation contract
+    - run attempt, change, cost, or time budget is exhausted
+    - durable closeout begins
+
+loop_policy:
+  max_review_response_loops: 3
+  max_remediation_attempts_per_root_cause: 3
+  checkpoint_required_between_stages: true
+  stop_when:
+    - same blocking finding recurs after a fix attempt
+    - reviewer output conflicts with verified implementation evidence
+    - required control-plane state cannot be verified
+    - a human gate is reached
+    - next fix would expand approved scope or risk boundaries
+    - retry, change, cost, or time budget is exhausted
+
+human_gates:
+  - operating authority changes
+  - major architecture decisions
+  - public API or CRD compatibility changes
+  - auth, permission, tenancy, service account token, RBAC, or webhook security changes
+  - deployment-risky infrastructure, release, signing, or publishing changes
+  - ambiguous product or operator tradeoffs
+  - authorization to perform the merge

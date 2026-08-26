@@ -1,0 +1,95 @@
+version: 1
+purpose: "Repository-local handoff from /sdlc:* commands to portable SDLC skills and repo-specific routing."
+
+namespace: "/sdlc:*"
+
+entrypoints:
+  "/sdlc:deliver":
+    skill: sdlc-deliver
+    mode: cumulative
+  "/sdlc:onboard-repository":
+    skill: sdlc-onboard-repository
+    mode: cumulative
+  "/sdlc:standardize-merge-gates":
+    skill: sdlc-standardize-merge-gates
+    mode: cumulative
+  "/sdlc:plan-handoff":
+    skill: sdlc-plan-handoff
+    mode: cumulative
+  "/sdlc:implement":
+    skill: sdlc-implement
+    mode: cumulative
+  "/sdlc:receive-handoff":
+    skill: sdlc-receive-handoff
+    mode: cumulative
+  "/sdlc:workboard-router":
+    skill: sdlc-workboard-router
+    mode: cumulative
+  "/sdlc:loop-governor":
+    skill: sdlc-loop-governor
+    mode: cumulative
+  "/sdlc:plan":
+    skill: sdlc-plan-orchestrator
+    mode: cumulative
+  "/sdlc:plan-decompose":
+    skill: sdlc-plan-decompose
+    mode: cumulative
+  "/sdlc:plan-reconcile":
+    skill: sdlc-plan-reconcile
+    mode: cumulative
+  "/sdlc:review":
+    skill: sdlc-review-orchestrator
+    mode: cumulative
+  "/sdlc:review-dispatch":
+    skill: sdlc-review-dispatch
+    mode: cumulative
+  "/sdlc:review-acceptance":
+    skill: sdlc-review-acceptance
+    mode: cumulative
+  "/sdlc:review-security":
+    skill: sdlc-review-security
+    mode: cumulative
+  "/sdlc:review-synthesize":
+    skill: sdlc-review-synthesize
+    mode: cumulative
+  "/sdlc:respond-to-review":
+    skill: sdlc-respond-to-review
+    mode: cumulative
+  "/sdlc:merge-pr":
+    skill: sdlc-merge-pr
+    mode: cumulative
+  "/sdlc:closeout-delivery":
+    skill: sdlc-closeout-delivery
+    mode: cumulative
+
+repository_surface_skills:
+  required:
+    - sdlc-deliver
+    - sdlc-implement
+    - sdlc-review-orchestrator
+    - sdlc-review-dispatch
+    - sdlc-review-acceptance
+    - sdlc-review-security
+    - sdlc-standardize-merge-gates
+    - sdlc-merge-pr
+    - sdlc-closeout-delivery
+  optional:
+    - github-cli-sandbox
+  fallback:
+    missing_required_skill: "Stop and report a capability blocker for the requested lifecycle stage."
+    missing_optional_skill: "Use local repository evidence and record the missing skill as residual risk."
+
+route_modes:
+  cumulative: "Run the package skill and then apply repository guidance as an additional layer."
+  replace: "Use the repository-declared skill or guidance instead of the package default for that route."
+  fallback: "Use repository guidance only when the preferred package skill is unavailable."
+
+layer_order:
+  - repository_invariants
+  - accepted_specs
+  - kubernetes_operator_runtime
+  - controller_runtime
+  - surface_route
+  - go_language
+  - additive_risk
+  - generic_review

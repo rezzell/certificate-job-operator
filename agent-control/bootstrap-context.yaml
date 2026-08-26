@@ -1,0 +1,66 @@
+version: 1
+purpose: "Repository-local pointers to bootstrap context for agentic SDLC work."
+
+principle: "Load repo routing first, then only the package skill and surface references required by the current task."
+
+required_entrypoints:
+  - AGENTS.md
+  - agent-control/skill-routing.yaml
+  - agent-control/control-planes.yaml
+  - agent-control/lifecycle.yaml
+
+context_locations:
+  bootstrap_manifest:
+    type: local
+    ref: agent-control/bootstrap-context.yaml
+    authority: routing
+  context_manifest:
+    type: local
+    ref: agent-control/
+    authority: routing
+  workboard:
+    type: none
+    ref: "No persistent repository workboard is configured. Use the linked GitHub issue, PR, or explicit user handoff as the current scope source."
+    authority: coordination-only
+  current_run_checkpoint:
+    type: source-review-body
+    ref: "For pull-request runs, use the latest SDLC checkpoint in the PR body or review body; for local-only runs, use the explicit handoff supplied by the operator."
+    authority: orchestration-evidence-only
+
+optional_entrypoints:
+  - README.md
+  - RELEASING.md
+  - WORKSTREAMS.md
+  - .github/workflows/
+  - Makefile
+  - PROJECT
+  - go.mod
+  - charts/certificate-job-operator/
+  - config/
+  - bundle/
+  - catalog/
+  - docs/superpowers/
+
+bootstrap_rules:
+  - "Load project-local routing before package skills."
+  - "Resolve delivery scope from a linked GitHub issue when present; otherwise use the explicit chat or handoff scope."
+  - "Treat README.md, RELEASING.md, WORKSTREAMS.md, CRD/API files, and release workflows as repository-local authority for current operator behavior."
+  - "When resuming an in-progress deterministic SDLC run, verify the checkpoint's immutable revision, PR head, and referenced evidence before continuing."
+  - "Prefer repository-local policy over copied handoff text."
+  - "Load only task-relevant specs, routes, and references."
+  - "Verify branch, PR, issue, checks, configured comparison refs, and review state before claiming current status."
+  - "Treat workboard and coordination state as continuity pointers, not product, delivery, review, or implementation authority."
+  - "Treat intra-run checkpoints as orchestration receipts only; verify requirements, implementation, review, acceptance, and release facts in their owner systems."
+  - "Do not include secrets, credentials, private keys, internal-only identifiers, or unnecessary confidential detail in handoffs."
+
+handoff_minimum:
+  - goal
+  - issue_or_source_of_scope
+  - accepted_decisions
+  - acceptance_criteria
+  - out_of_scope
+  - repository_context
+  - verification_expectations
+  - run_correlation_or_checkpoint_policy
+  - risks
+  - next_action

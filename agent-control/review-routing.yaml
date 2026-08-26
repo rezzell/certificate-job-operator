@@ -1,0 +1,220 @@
+version: 1
+purpose: "Route SDLC review passes from changed files, language, runtime, and risk triggers."
+
+orchestrator:
+  command: "/sdlc:review"
+  skill: sdlc-review-orchestrator
+
+default_passes:
+  - acceptance_criteria
+  - correctness
+  - tests
+
+default_skills:
+  - skill: sdlc-review-acceptance
+    mode: cumulative
+
+language_routes:
+  go:
+    globs:
+      - "**/*.go"
+      - "**/go.mod"
+      - "**/go.sum"
+      - "**/go.work"
+      - "**/go.work.sum"
+    preferred_skills: []
+    fallback_focus:
+      - Kubernetes controller reconciliation correctness
+      - controller-runtime API and status update behavior
+      - Go error handling and context propagation
+      - table-driven unit and envtest coverage
+      - generated code and manifest consistency
+
+  shell:
+    globs:
+      - "**/*.sh"
+      - "**/*.bash"
+      - "**/Makefile"
+    preferred_skills: []
+    fallback_focus:
+      - strict shell behavior
+      - quoted variables and safe temporary files
+      - CI portability
+      - command failure propagation
+
+  yaml_config:
+    globs:
+      - "**/*.yaml"
+      - "**/*.yml"
+      - "**/config/**"
+      - "**/charts/**"
+      - "**/bundle/**"
+      - "**/catalog/**"
+      - "**/.github/workflows/**"
+    preferred_skills: []
+    fallback_focus:
+      - schema compatibility
+      - generated artifact ownership
+      - Kubernetes manifest validity
+      - GitHub Actions trigger and permission behavior
+
+surface_routes:
+  kubernetes_operator:
+    globs:
+      - "api/**"
+      - "cmd/**"
+      - "internal/controller/**"
+      - "internal/webhook/**"
+      - "internal/jobsecurity/**"
+      - "config/**"
+      - "PROJECT"
+    add_passes:
+      - runtime_correctness
+      - compatibility
+    focus:
+      - cert-manager Certificate watch behavior
+      - CertificateJob CRD compatibility
+      - workflow DAG and failure policy semantics
+      - namespace and tenant isolation
+      - RBAC, webhook, metrics, and leader election configuration
+
+  helm_olm_release:
+    globs:
+      - "charts/**"
+      - "bundle/**"
+      - "catalog/**"
+      - "bundle.Dockerfile"
+      - "catalog.Dockerfile"
+      - "config/manifests/**"
+      - "config/olm/**"
+      - "RELEASING.md"
+    add_passes:
+      - deployment
+      - release
+      - compatibility
+    focus:
+      - OLM bundle/catalog reproducibility
+      - Helm chart values and namespace-scoped defaults
+      - release tag prefix routing
+      - cosign and artifact publication behavior
+
+  tooling_ci:
+    globs:
+      - "Makefile"
+      - "Dockerfile"
+      - "hack/**"
+      - ".github/workflows/**"
+      - ".github/scripts/**"
+      - ".devcontainer/**"
+      - ".golangci.yml"
+      - "sonar-project.properties"
+    add_passes:
+      - tooling
+      - ci
+    focus:
+      - always-present pull request validation
+      - immutable GitHub Action pins
+      - runner fallback behavior
+      - branch protection and merge-gate compatibility
+      - local and CI command parity
+
+  workflow_agent_policy:
+    globs:
+      - "AGENTS.md"
+      - "agent-control/**"
+    add_passes:
+      - workflow_agent_policy
+    focus:
+      - policy consistency
+      - progressive disclosure
+      - source-review mapping
+      - handoff and checkpoint contracts
+      - merge-gate implications
+
+  contracts_data:
+    globs:
+      - "api/**"
+      - "config/crd/**"
+      - "config/samples/**"
+      - "charts/certificate-job-operator/crds/**"
+      - "bundle/manifests/*certificatejobs.yaml"
+    add_passes:
+      - compatibility
+    focus:
+      - CRD schema compatibility
+      - sample manifest validity
+      - alpha API migration notes for breaking changes
+
+risk_triggers:
+  security:
+    paths:
+      - "internal/jobsecurity/**"
+      - "internal/webhook/**"
+      - "internal/controller/**"
+      - "config/rbac/**"
+      - "config/network-policy/**"
+      - "charts/**"
+      - ".github/workflows/**"
+      - "Dockerfile"
+      - "bundle.Dockerfile"
+      - "catalog.Dockerfile"
+    terms:
+      - auth
+      - token
+      - tenant
+      - permission
+      - secret
+      - serviceAccount
+      - hostPath
+      - privilege
+      - root
+      - rbac
+      - webhook
+      - signing
+      - cosign
+      - deploy
+    add_passes:
+      - security
+    add_skills:
+      - skill: sdlc-review-security
+        mode: cumulative
+
+review_policy:
+  checkpoint_contract:
+    produce_after_review_cycle: true
+    immutable_revision_binding: "Every review checkpoint records cycle number, base SHA, reviewed head SHA, publication evidence when applicable, and selected reviewer lanes."
+    deterministic_findings: "Classify defects that can be fixed inside accepted scope separately from discussions, ambiguity, or decision-boundary findings."
+    stale_revision_policy: "A changed head SHA invalidates unfinished review output and requires a fresh review checkpoint for the new revision."
+    promotion_policy: "Decision-boundary findings, Waiting or Blocked coordination, interrupted runs, budget exhaustion, and closeout require a full coordination handoff."
+  missing_preferred_skill: "Use the route fallback_focus as reviewer instructions and record the missing skill as a non-blocking improvement."
+  route_composition: "Routes are additive. Load every matching specialized language, surface, and risk reference unless a repository route explicitly declares replacement."
+  broad_fallback_precedence: "Broad fallback routes such as yaml_config defer to narrower runtime, infrastructure, contracts/data, dependency, tooling, or security routes when they cover the same finding."
+  deduplicate_by_root_cause: true
+  default_source_review_mode: pull_request
+  publish_review_summary: true
+  github_review_publication: "Submit one pull request review per completed review cycle, with a summary body and any line-specific comments batched into that review."
+  review_status_first_line: "Every source-review body starts with STATUS: COMMENT, STATUS: REQUEST_CHANGES, or STATUS: APPROVE; this records intended review posture, not necessarily the source-control transport event."
+  avoid_standalone_pr_comments: true
+  default_review_lanes:
+    - acceptance
+    - correctness_quality
+    - tests_verification
+    - security_when_triggered
+    - go_runtime_when_triggered
+    - dependencies_when_triggered
+    - infrastructure_when_triggered
+    - contracts_data_when_triggered
+  review_execution:
+    isolation: mandatory
+    assignment: "Dispatch every selected independent lane to its own fresh reviewer subagent for each cycle and immutable head SHA."
+    orchestrator_role: "Coordinate and synthesize only; never perform a review lane."
+    checkpoint_output: "Return a run_checkpoint bound to the immutable reviewed head and source-review publication evidence before continuing to remediation or ready-for-human-review."
+  fix_execution:
+    isolation: mandatory
+    assignment: "Use fresh fixer subagents isolated from reviewer contexts and from concurrent fixer filesystem ownership."
+    branch_sync_policy: "Before assigning code fixes or publishing STATUS: APPROVE, verify whether the PR branch is behind the target base or platform-required update state; if stale, route branch synchronization through a fresh fixer first, preferring rebase and falling back to merge only when rebase is disallowed, unsafe, or unsupported."
+    commit_policy: "Create one atomic commit per independently reviewable thought/change; allow ordered commits per finding and documented shared commits for inseparable fix groups."
+    checkpoint_input: "Consume only deterministic findings whose review checkpoint still matches the current starting revision."
+    checkpoint_output: "Return a remediation run_checkpoint with ordered commit SHAs, validation evidence, residual risk, and new output revision."
+    next_cycle: "Verify all dispositions and branch freshness, then dispatch fresh reviewer subagents against the new head SHA."
+  require_human_gate_for_high_risk: true

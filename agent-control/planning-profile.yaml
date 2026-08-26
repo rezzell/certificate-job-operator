@@ -1,0 +1,40 @@
+version: 1
+purpose: "Repository adoption profile for provider-neutral planning and intent reconciliation."
+
+identity:
+  scope: repository
+  owner: rezzell/certificate-job-operator
+  authority_status: repository-local
+  coordination_standard: "Installed sdlc plugin package plus this agent-control directory."
+
+knowledge:
+  adapter: repository
+  bootstrap_manifest: agent-control/bootstrap-context.yaml
+  context_manifest: agent-control/
+  operating_authority: README.md
+  requirements: "Linked GitHub issue or explicit user handoff; README.md, RELEASING.md, WORKSTREAMS.md, and API files are repository behavior references."
+  decisions: "Repository commits, linked issues, PR discussion, WORKSTREAMS.md, and docs/superpowers/ when directly referenced."
+  verify_authority_status: true
+
+planning:
+  runtime: "Codex /sdlc:* skills"
+  reconciliation_policy: "Prefer current repository source and linked GitHub issue state over stale handoff text; escalate when accepted scope or API compatibility is ambiguous."
+  decomposition_route: sdlc-plan-decompose
+  reconciliation_route: sdlc-plan-reconcile
+  implementation_readiness_gate: "Bounded objective, accepted scope source, acceptance criteria, verification commands, and source-review target are present."
+  escalation_destination: "Operator/user in chat, or the linked GitHub issue when a durable issue exists."
+
+budgets:
+  planning_attempts: 1
+  decomposition_depth: 2
+  component_count: 8
+  elapsed_runtime: operator-bound
+  cost_or_tokens: operator-bound
+
+boundaries:
+  confidentiality: "Repository-local and linked GitHub context only unless the user explicitly authorizes another private system."
+  excluded_context:
+    - "Unlinked private employer, client, email, chat, or Notion content."
+  permission_scope:
+    - "Read repository source, tests, generated artifacts, workflows, and linked GitHub issue or pull request state."
+    - "Do not mutate GitHub branch protection, rulesets, custom properties, secrets, releases, or package publishing unless the user explicitly authorizes that action."

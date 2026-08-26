@@ -1,0 +1,136 @@
+version: 1
+purpose: "Repository-local expectations for receiving and producing autonomous SDLC handoffs."
+
+agent_execution_policy:
+  orchestrator_role: "Own correlation, dispatch, receipt verification, synthesis routing, budgets, and lifecycle transitions; do not absorb specialist work."
+  fresh_subagent_required_for:
+    - planning decomposition
+    - component planning pass
+    - planning reconciliation
+    - implementation unit
+    - implementation integration
+    - review lane
+    - deterministic review fix
+    - merge stage when dispatched by the delivery orchestrator
+    - delivery closeout stage when dispatched by the delivery orchestrator
+  dispatch_packet:
+    include:
+      - run and claim correlation
+      - bounded objective and output contract
+      - immutable input revision
+      - authoritative source pointers
+      - narrow bootstrap pointer
+      - applicable budget and allowed mutations
+    exclude:
+      - full parent transcript
+      - unrelated component or lifecycle context
+      - copied authoritative documents when stable pointers suffice
+  receipt_policy:
+    require_identity_and_revision_binding: true
+    require_evidence_refs: true
+    reject_orchestrator_authored_specialist_receipts: true
+    reject_stale_or_out_of_scope_receipts: true
+    gate_receipt:
+      required_for_declared_human_gate: true
+      fields:
+        - gate
+        - decision_authority
+        - decision_version
+        - governing_evidence_ref
+        - applies_to_run_and_scope
+        - verified_at
+  capability_fallback: "Serialize fresh agents when concurrent filesystem isolation is unavailable and serialization preserves scope and budget. Stop with a capability blocker when fresh-agent isolation or required filesystem isolation remains unavailable."
+
+handoff_boundary_policy:
+  intra_run_checkpoint:
+    enabled: true
+    purpose: "Record deterministic stage receipts inside one authorized SDLC run without creating handoff churn."
+    required_when:
+      - "implementation, review, remediation, re-review, or verification stays inside the same authorized objective"
+      - "scope, project, confidentiality boundary, run correlation, and resumability contract remain unchanged"
+      - "all evidence is bound to immutable revisions or stable owner-system refs"
+    minimum_contract:
+      run_checkpoint:
+        run_id: stable logical run correlation
+        checkpoint_id: unique stage receipt id
+        stage: "one of plan_handoff, implementation_unit, implementation_integration, implementation, review, remediation, re_review, verification"
+        actor_or_runtime: agent, tool, or runtime that produced the receipt
+        input_revision: immutable input commit, PR head, issue version, or handoff id
+        output_revision: immutable output commit, PR head, review id, or evidence ref
+        evidence_refs: []
+        verification: commands, checks, source-review publication, or reason not run
+        deterministic_findings: []
+        remediation_or_next_stage: "one of continue, review, remediate, verify, operator_engage, back_to_planning, close"
+        attempt_or_budget_state: loop count, retry count, cost, time, or repository budget state
+        decision_boundary_crossed: false
+        full_handoff_required: false
+    rules:
+      - "Do not treat checkpoints as requirements, delivery state, implementation truth, acceptance, or release authority."
+      - "Do not mutate GitHub issue state or latest handoff refs solely because the runtime changes inside the same bounded run."
+      - "Do not create issue items for conjoined implementation units that share the parent run's authorized outcome, acceptance boundary, project, confidentiality boundary, and resumability contract."
+      - "Reject stale checkpoints when owner-system state or immutable revisions no longer match."
+      - "Promote immediately to a full coordination handoff when any promotion condition is met."
+  full_coordination_handoff:
+    required_when:
+      - interruption where continuation cannot be reconstructed from checkpoints and owner-system state
+      - decision or authority boundary
+      - back-to-planning transfer
+      - Waiting or Blocked coordination
+      - project, scope, confidentiality, or independently resumable workstream boundary
+      - operator engagement that changes the continuation contract
+      - durable closeout
+      - retry, change, cost, or time budget exhaustion
+
+handoff_read_policy:
+  required_fields:
+    - goal
+    - agent_bootstrap_context
+    - knowledge_or_context_refs
+    - issue_or_source_of_scope
+    - current_state
+    - source_review_target
+    - verification
+    - risks
+    - next_action
+  rules:
+    - "Verify dynamic references before acting."
+    - "When an intra-run checkpoint is supplied, verify its run id, input revision, output revision, evidence refs, and budget state before continuing."
+    - "Block on explicit human decisions or human gates."
+    - "If review is waiting, verify the configured source-review target: PR state for pull_request mode."
+    - "If implementation changed since the last review, run /sdlc:review-dispatch before responding."
+    - "If the handoff is stale or owner systems disagree, surface the conflict before acting."
+
+handoff_write_policy:
+  stage_minimums:
+    planning: [run_checkpoint, governing_requirement, component_or_reconciliation_receipts, unresolved_decisions, next_action]
+    implementation: [run_checkpoint, implementation_unit_receipts, integration_receipt, commits, validation, residual_risks, next_action]
+    review: [run_checkpoint, reviewed_revision, reviewer_receipts, publication_evidence, findings, next_action]
+    merge: [run_checkpoint, source_review_target, approval_authority, merge_wait_checkpoint, merge_evidence, next_action]
+    closeout: [run_checkpoint, source_review_target, ticket, merge_evidence, completion_evidence, next_action]
+  include:
+    - agent_bootstrap_context
+    - knowledge_or_context_refs
+    - issue_or_source_of_scope
+    - source_review_target
+    - pr_author
+    - current_actor_role
+    - pull_request_draft_state
+    - auto_merge_state
+    - approval_gate
+    - branch
+    - pr
+    - comparison_base
+    - comparison_head
+    - ticket
+    - commit
+    - files_changed
+    - commands_run
+    - run_checkpoint
+    - stage_or_unit_receipts
+    - unresolved_risks
+    - next_action
+  exclude:
+    - secrets
+    - private keys
+    - credentials
+    - unnecessary confidential data

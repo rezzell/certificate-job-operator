@@ -5,6 +5,7 @@ on:
     branches:
       - main
   pull_request:
+  merge_group:
 
 permissions:
   contents: read
@@ -87,3 +88,45 @@ jobs:
     with:
       runner_json: ${{ needs.choose-runner.outputs.runner }}
     secrets: inherit
+
+  merge-readiness:
+    name: rezzell/merge-readiness
+    needs:
+      - lint
+      - tests
+      - e2e
+      - security
+      - sonarcloud
+      - actionlint
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify required validation jobs
+        env:
+          LINT_RESULT: ${{ needs.lint.result }}
+          TESTS_RESULT: ${{ needs.tests.result }}
+          E2E_RESULT: ${{ needs.e2e.result }}
+          SECURITY_RESULT: ${{ needs.security.result }}
+          SONARCLOUD_RESULT: ${{ needs.sonarcloud.result }}
+          ACTIONLINT_RESULT: ${{ needs.actionlint.result }}
+        run: |
+          set -euo pipefail
+
+          failed=0
+          for check in \
+            "lint:${LINT_RESULT}" \
+            "tests:${TESTS_RESULT}" \
+            "e2e:${E2E_RESULT}" \
+            "security:${SECURITY_RESULT}" \
+            "sonarcloud:${SONARCLOUD_RESULT}" \
+            "actionlint:${ACTIONLINT_RESULT}"
+          do
+            name="${check%%:*}"
+            result="${check#*:}"
+            if [[ "${result}" != "success" ]]; then
+              echo "::error::${name} result was ${result}"
+              failed=1
+            fi
+          done
+
+          exit "${failed}"

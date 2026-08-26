@@ -1,0 +1,48 @@
+version: 1
+purpose: "Repository-local post-merge authority and evidence policy for /sdlc:merge-pr."
+
+merge_policy:
+  delegated_to_agent: false
+  require_green_checks: true
+  require_approval: true
+  approval_authority: "rezzell/review-policy: main"
+  required_check_contexts:
+    - "rezzell/review-policy: main"
+    - "rezzell/merge-readiness"
+  require_unresolved_threads_closed: true
+  method: squash
+  auto_merge:
+    enable_on_pr_open: true
+    setup_delegated_to_agent: true
+    require_ready_for_review_pr: true
+  merge_wait:
+    enabled: true
+    max_observation_seconds: 600
+    recheck_interval_seconds: 30
+    checkpoint_required: true
+
+ticket_policy:
+  update_after_merge: true
+  source_of_truth: github-issues
+  target_status: closed
+  evidence_fields:
+    - pr
+    - merge_commit
+    - checks
+    - review_state
+    - follow_up
+  fallback: "If no linked GitHub issue exists, record closeout evidence in the PR or final handoff only."
+
+blocked_when:
+  - checks are failing, pending, or unavailable and override is not allowed
+  - configured approval authority is missing and no already-authorized merge wait can continue
+  - unresolved review threads remain
+  - linked ticket cannot be verified
+  - merge authority is not explicitly delegated
+  - GitHub custom property merge-gate-profile is absent or does not match agent-control source_review.merge_gate_profile
+
+auto_merge_blocked_when:
+  - pull request is still draft
+  - platform or repository settings do not allow auto-merge
+  - merge method cannot be resolved from repo policy
+  - required review-policy or merge-readiness context is not enforced on the target branch
