@@ -1,0 +1,190 @@
+version: 1
+purpose: "Repository-local control-plane ownership map for portable SDLC skills."
+
+principle: "Portable skills perform actions; this repository declares where authority lives."
+
+control_planes:
+  knowledge:
+    type: repository
+    owns:
+      - repository behavior documentation
+      - release runbooks
+      - completed workstream records
+      - API maturity and compatibility policy
+      - bootstrap manifests
+      - context manifests
+    primary_refs:
+      - README.md
+      - RELEASING.md
+      - WORKSTREAMS.md
+      - agent-control/
+    verify_before:
+      - treating intent as approved
+      - reconciling legacy intent
+      - declaring implementation readiness
+      - resolving a back-to-planning decision
+      - treating a decision, requirement, or manifest as approved
+      - resolving authority conflicts
+      - changing product, API, release, or architecture scope
+
+  planning:
+    type: chat
+    owns:
+      - product tradeoff discussion
+      - explicit human decisions
+      - implementation handoff drafting
+    verify_before:
+      - treating a proposed decision as accepted
+      - changing accepted scope
+      - crossing a human gate
+
+  coordination:
+    type: github-issues
+    owns:
+      - cross-session recommendations when a GitHub issue is linked
+      - persisted handoff references when included in an issue or PR
+      - waiting and readiness triggers when explicitly recorded
+    fallback: "If no GitHub issue is linked, coordination is the current chat or handoff only."
+    verify_before:
+      - accepting a workboard item as current session input
+      - claiming or transferring coordinated work
+      - treating a waiting trigger as satisfied
+      - reporting coordination closure
+
+  orchestration_evidence:
+    type: source-review-body
+    owns:
+      - intra-run checkpoint receipts
+      - logical run correlation
+      - deterministic stage transition evidence
+      - review and remediation attempt or budget counters
+      - checkpoint-to-handoff promotion signals
+    fallback: "For local-only work without a pull request, use the explicit operator handoff or local evidence path supplied for that run."
+    does_not_own:
+      - requirements
+      - delivery priority or assignment
+      - implementation truth
+      - acceptance
+      - release authority
+      - merge approval
+    verify_before:
+      - continuing a deterministic implementation, review, remediation, or re-review loop
+      - accepting a checkpoint as current
+      - rejecting stale review or remediation output
+      - deciding whether a full coordination handoff is required
+
+  delivery:
+    type: github-issues
+    source_of_truth: github-issues
+    owns:
+      - assignment when an issue is linked
+      - priority when an issue labels or body declares it
+      - workflow status when tracked in GitHub
+      - acceptance criteria
+      - delivery evidence
+    fallback: "If no GitHub issue exists, the current explicit user request is the delivery scope source for that run."
+    verify_before:
+      - declaring acceptance criteria satisfied
+      - moving ticket status
+      - creating or closing follow-up work
+
+  source_review:
+    type: github
+    mode: pull_request
+    merge_gate_profile: standard-pr
+    github_projection:
+      custom_property: merge-gate-profile
+      expected_value: standard-pr
+      verification: "Stop when the externally enforced GitHub custom property is missing or differs from merge_gate_profile. Agent-control policy remains authoritative."
+    comparison:
+      base_ref: origin/main
+      head_ref: pull-request-head
+      require_clean_worktree: true
+      require_base_ref_fetch: true
+    branching:
+      strategy: pull_request_branch
+      integration_target: main
+    pull_request:
+      create_as_draft: false
+      enable_auto_merge_on_open: true
+      auto_merge_method: squash
+      approval_gate:
+        required_before_merge: true
+        authority: "configured review-policy check"
+        context_prefix: "rezzell/review-policy"
+        required_check_context: "rezzell/review-policy: main"
+        expected_publisher: "configured policy-bot GitHub App"
+      merge_readiness_gate:
+        required_before_merge: true
+        repository_owner: rezzell
+        owner_profile: rezzell
+        required_check_context: "rezzell/merge-readiness"
+        expected_publisher: github-actions
+      review_transport:
+        status_line_meaning: intended_review_posture
+        self_review: comment
+    publication:
+      github:
+        mode: pull_request_review
+        summary_required: true
+        inline_comments: batched_in_review
+        standalone_finding_comments: false
+    owns:
+      - pull requests
+      - pull request review submissions
+      - review threads
+      - branch comparison
+      - check status
+      - merge state
+    verify_before:
+      - creating or changing pull request draft state
+      - enabling auto-merge
+      - choosing the review comparison base and head
+      - submitting pull request reviews
+      - replying to review comments
+      - resolving review threads
+      - claiming checks are passing
+      - declaring merge readiness
+      - merging a pull request
+
+  repository:
+    type: git
+    conventions:
+      commit_messages: conventional_commits
+      branch_names: conventional_branch_names
+      authority_order:
+        - repo-local policy
+        - installed sdlc package policy
+        - user default
+      ai_facing_docs_are_source: true
+      operator_divergence_requires_confirmation: true
+    owns:
+      - code
+      - tests
+      - executable configuration
+      - generated manifests and generated Go code
+      - repository-local docs
+      - AI-facing skills, prompts, evals, tool contracts, routing, memory behavior, and workflow policy
+    verify_before:
+      - claiming files changed
+      - claiming worktree cleanliness
+      - reporting commit identity
+
+authority_rules:
+  - "Planning must resolve current requirements, acceptance criteria, and material decisions from the owning issue, handoff, chat, or repository source."
+  - "Planning artifacts and coordination state do not approve product or domain intent."
+  - "A handoff transfers state but does not create authority."
+  - "GitHub Issues are the issue-layer source of truth when a linked issue exists; otherwise the explicit user request or handoff owns current scope."
+  - "Knowledge, coordination, delivery, source review, and repository state may live in different systems."
+  - "Coordination and workboard state are continuity aids; verify requirements, decisions, execution status, review state, and implementation facts in their owning systems."
+  - "Intra-run checkpoints are orchestration evidence only; checkpoint support does not create a second authoritative run-state control plane."
+  - "Pull request review is the default source-review mode."
+  - "source_review.merge_gate_profile is authoritative agent-control policy; the GitHub organization custom property merge-gate-profile is its externally enforced projection, not a second authority."
+  - "Map pull_request plus pull_request_branch only to standard-pr. Stop onboarding, review routing, or merge-gate standardization when source-review mode, branching strategy, merge-gate profile, or GitHub custom-property projection disagree."
+  - "When pull request mode creates or updates a PR, the default state is ready for review, not draft."
+  - "When pull request mode creates a PR and repository policy enables auto-merge-on-open, request platform auto-merge after the PR exists only when the operator has delegated merge-stage action."
+  - "GitHub pull request mode keeps review policy and merge readiness independent: the configured review-policy check records approval, while the always-present owner-profile readiness context evaluates repository-applicable validation."
+  - "Dynamic state must be verified in the owning control plane before consequential action."
+  - "AI-facing Markdown and YAML that define agent behavior, skills, prompts, evals, tool contracts, routing, memory behavior, or workflow policy are workflow source, not docs-only material."
+  - "Merge and post-merge ticket transitions require explicit repo policy or operator approval."
+  - "Do not embed secrets, credentials, private keys, or unnecessary confidential data in handoffs, tickets, PR comments, or skill outputs."
