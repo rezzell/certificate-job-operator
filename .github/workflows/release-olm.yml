@@ -114,7 +114,7 @@ jobs:
           while IFS= read -r file; do
             [[ -z "$file" ]] && continue
             case "$file" in
-              bundle/*|catalog/*|config/olm/*|config/manifests/*|config/manager/*|config/rbac/*|config/webhook/*|config/default/*|config/crd/*|config/certmanager/*|PROJECT|Makefile)
+              bundle/*|catalog/*|catalog.Dockerfile|config/olm/*|config/manifests/*|config/manager/*|config/rbac/*|config/webhook/*|config/default/*|config/crd/*|config/certmanager/*|PROJECT|Makefile)
                 SHOULD_RELEASE=true
                 break
                 ;;
