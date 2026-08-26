@@ -270,6 +270,8 @@ Manual releases can bypass those guards by setting `force_release=true` in the `
 
 Each workflow also supports manual `workflow_dispatch` for explicit one-off releases.
 
+When a release workflow runs against a release tag, it also creates or updates a prerelease GitHub Release after the publish/sign steps succeed. OLM releases attach a tarball of generated `bundle/` and `catalog/` content; Helm releases attach the packaged chart.
+
 Full release runbook (tag naming, path guards, overrides): `RELEASING.md`.
 Branch protection can be applied via `make branch-protect` after the remote `main` branch exists.
 Release dry-runs can be triggered with `make release-dry-run VERSION=<x.y.z>`.

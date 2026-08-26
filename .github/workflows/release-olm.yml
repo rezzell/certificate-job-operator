@@ -65,7 +65,7 @@ jobs:
     needs: choose-runner
     permissions:
       actions: read
-      contents: read
+      contents: write
       packages: write
       id-token: write
     runs-on: ${{ fromJson(needs.choose-runner.outputs.runner) }}
@@ -175,6 +175,15 @@ jobs:
             bundle/**
             catalog/**
 
+      - name: Package OLM release assets
+        if: steps.changes.outputs.should_release == 'true'
+        id: assets
+        run: |
+          set -euo pipefail
+          mkdir -p dist/olm
+          tar -czf "dist/olm/olm-artifacts-v${{ steps.meta.outputs.version }}.tar.gz" bundle catalog
+          echo "olm_archive=dist/olm/olm-artifacts-v${{ steps.meta.outputs.version }}.tar.gz" >> "$GITHUB_OUTPUT"
+
       - name: Build bundle image
         if: steps.changes.outputs.should_release == 'true'
         run: make bundle-build VERSION=${{ steps.meta.outputs.version }} IMAGE_TAG_BASE=${{ steps.meta.outputs.image_tag_base }}
@@ -248,3 +257,51 @@ jobs:
         run: |
           cosign sign --yes "${{ steps.meta.outputs.bundle_image }}"
           cosign sign --yes "${{ steps.meta.outputs.catalog_image }}"
+
+      - name: Create GitHub release
+        if: steps.changes.outputs.should_release == 'true' && github.ref_type == 'tag' && (github.event_name == 'push' || inputs.push_artifacts)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          OPERATOR_IMAGE: ${{ steps.meta.outputs.operator_image }}
+          BUNDLE_IMAGE: ${{ steps.meta.outputs.bundle_image }}
+          CATALOG_IMAGE: ${{ steps.meta.outputs.catalog_image }}
+          OLM_ARCHIVE: ${{ steps.assets.outputs.olm_archive }}
+        run: |
+          set -euo pipefail
+          cat > release-notes.md <<EOF
+          ## OLM artifacts
+
+          - Operator image: \`${OPERATOR_IMAGE}\`
+          - Bundle image: \`${BUNDLE_IMAGE}\`
+          - Catalog image: \`${CATALOG_IMAGE}\`
+          - Generated manifests: attached as \`$(basename "${OLM_ARCHIVE}")\`
+
+          ## Verification
+
+          \`\`\`bash
+          cosign verify "${BUNDLE_IMAGE}" \\
+            --certificate-identity-regexp "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release-olm.yml@refs/tags/${RELEASE_TAG}" \\
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com"
+
+          cosign verify "${CATALOG_IMAGE}" \\
+            --certificate-identity-regexp "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release-olm.yml@refs/tags/${RELEASE_TAG}" \\
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com"
+          \`\`\`
+          EOF
+
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release edit "${RELEASE_TAG}" \
+              --title "OLM v${VERSION}" \
+              --notes-file release-notes.md \
+              --prerelease
+          else
+            gh release create "${RELEASE_TAG}" \
+              --title "OLM v${VERSION}" \
+              --notes-file release-notes.md \
+              --verify-tag \
+              --prerelease
+          fi
+
+          gh release upload "${RELEASE_TAG}" "${OLM_ARCHIVE}" --clobber

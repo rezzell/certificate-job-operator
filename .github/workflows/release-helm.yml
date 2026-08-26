@@ -65,7 +65,7 @@ jobs:
     needs: choose-runner
     permissions:
       actions: read
-      contents: read
+      contents: write
       packages: write
       id-token: write
     runs-on: ${{ fromJson(needs.choose-runner.outputs.runner) }}
@@ -221,3 +221,47 @@ jobs:
         run: |
           CHART_NAME=$(basename "${{ steps.meta.outputs.chart_dir }}")
           cosign sign --yes "${{ steps.meta.outputs.oci_repository }}/${CHART_NAME}:${{ steps.meta.outputs.version }}"
+
+      - name: Create GitHub release
+        if: steps.changes.outputs.should_release == 'true' && github.ref_type == 'tag' && (github.event_name == 'push' || inputs.push_artifacts)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          CHART_DIR: ${{ steps.meta.outputs.chart_dir }}
+          OCI_REPOSITORY: ${{ steps.meta.outputs.oci_repository }}
+          CHART_PACKAGE: ${{ steps.package.outputs.package }}
+        run: |
+          set -euo pipefail
+          CHART_NAME=$(basename "${CHART_DIR}")
+          CHART_REF="${OCI_REPOSITORY}/${CHART_NAME}:${VERSION}"
+
+          cat > release-notes.md <<EOF
+          ## Helm chart
+
+          - OCI chart: \`${CHART_REF}\`
+          - Chart package: attached as \`$(basename "${CHART_PACKAGE}")\`
+
+          ## Verification
+
+          \`\`\`bash
+          cosign verify "${CHART_REF}" \\
+            --certificate-identity-regexp "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release-helm.yml@refs/tags/${RELEASE_TAG}" \\
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com"
+          \`\`\`
+          EOF
+
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release edit "${RELEASE_TAG}" \
+              --title "Helm v${VERSION}" \
+              --notes-file release-notes.md \
+              --prerelease
+          else
+            gh release create "${RELEASE_TAG}" \
+              --title "Helm v${VERSION}" \
+              --notes-file release-notes.md \
+              --verify-tag \
+              --prerelease
+          fi
+
+          gh release upload "${RELEASE_TAG}" "${CHART_PACKAGE}" --clobber

@@ -60,7 +60,7 @@ jobs:
     needs: choose-runner
     permissions:
       actions: read
-      contents: read
+      contents: write
       packages: write
       id-token: write
       attestations: write
@@ -221,3 +221,42 @@ jobs:
           COSIGN_EXPERIMENTAL: "1"
         run: |
           cosign sign --yes "${{ steps.meta.outputs.image }}@${{ steps.build.outputs.digest }}"
+
+      - name: Create GitHub release
+        if: steps.changes.outputs.should_release == 'true' && github.ref_type == 'tag' && (github.event_name == 'push' || inputs.push_artifacts)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          IMAGE: ${{ steps.meta.outputs.image }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          cat > release-notes.md <<EOF
+          ## Operator image
+
+          - Image: \`${IMAGE}\`
+          - Digest: \`${DIGEST}\`
+          - Immutable reference: \`${IMAGE}@${DIGEST}\`
+
+          ## Verification
+
+          \`\`\`bash
+          cosign verify "${IMAGE}@${DIGEST}" \\
+            --certificate-identity-regexp "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release-operator.yml@refs/tags/${RELEASE_TAG}" \\
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com"
+          \`\`\`
+          EOF
+
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release edit "${RELEASE_TAG}" \
+              --title "Operator v${VERSION}" \
+              --notes-file release-notes.md \
+              --prerelease
+          else
+            gh release create "${RELEASE_TAG}" \
+              --title "Operator v${VERSION}" \
+              --notes-file release-notes.md \
+              --verify-tag \
+              --prerelease
+          fi

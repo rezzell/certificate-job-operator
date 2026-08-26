@@ -75,6 +75,8 @@ Automation helper:
 make release-dry-run VERSION=0.1.0
 ```
 
+Dry runs do not create GitHub Releases because release records are created only when a workflow runs against a release tag with artifact publishing enabled.
+
 ## Recommended Preflight
 
 Run before tagging:
@@ -121,6 +123,41 @@ Use when Helm templates/values/docs changed for non-OLM users.
 git tag helm-vX.Y.Z
 git push origin helm-vX.Y.Z
 ```
+
+## GitHub Releases
+
+Each release workflow creates or updates a prerelease GitHub Release after the artifact publish/sign steps complete successfully when the workflow runs against a release tag. This includes tag-triggered publishes and manual dispatches using an existing release tag as `--ref` with `push_artifacts=true`.
+
+- Operator releases include the published image tag, digest, immutable image reference, and cosign verification command.
+- OLM releases include operator/bundle/catalog image references, cosign verification commands, and an attached `olm-artifacts-vX.Y.Z.tar.gz` archive containing generated `bundle/` and `catalog/` content.
+- Helm releases include the OCI chart reference, cosign verification command, and the attached chart `.tgz` package.
+
+Manual `workflow_dispatch` runs from a branch do not create GitHub Releases. If you need a durable release record, run the workflow against the matching release tag so the workflow can prove the tag, publish/sign the artifacts, and then create or update the release.
+
+## Backfilling GitHub Releases
+
+For release tags created after GitHub Release creation was added to the workflows, rerun the matching workflow from the existing tag when possible. The workflow will recreate generated assets from source and then create or update the release:
+
+```bash
+gh workflow run .github/workflows/release-operator.yml --ref operator-vX.Y.Z \
+  -f version=X.Y.Z \
+  -f push_artifacts=true \
+  -f force_release=true
+
+gh workflow run .github/workflows/release-olm.yml --ref olm-vX.Y.Z \
+  -f version=X.Y.Z \
+  -f push_artifacts=true \
+  -f force_release=true
+
+gh workflow run .github/workflows/release-helm.yml --ref helm-vX.Y.Z \
+  -f version=X.Y.Z \
+  -f push_artifacts=true \
+  -f force_release=true
+```
+
+Use the tag-triggered flow instead when backfill can tolerate repushing or creating the tag. Avoid hand-created releases unless the original artifact can no longer be reproduced; if manual backfill is necessary, include the exact registry references and attach regenerated manifests/chart packages from the tagged source.
+
+For artifacts published before these workflow steps existed, first confirm the source commit that produced the artifact. If no release tag exists, create the component tag on that exact commit before creating a GitHub Release. Do not create a backfill release from the current branch unless it is known to match the published artifact.
 
 ## Repository Protection Baseline
 
@@ -180,6 +217,6 @@ When updating an action:
 
 ## Artifacts
 
-- Operator workflow publishes/signs container image.
-- OLM workflow validates, then publishes/signs bundle and catalog images and uploads generated `bundle/` + `catalog/` as workflow artifacts.
-- Helm workflow lints/packages chart, uploads `.tgz` artifact, and can push/sign OCI chart.
+- Operator workflow publishes/signs container image and records the immutable image digest in the GitHub Release.
+- OLM workflow validates, publishes/signs bundle and catalog images, uploads generated `bundle/` + `catalog/` as workflow artifacts, and attaches the same generated content archive to the GitHub Release.
+- Helm workflow lints/packages chart, uploads `.tgz` artifact, can push/sign OCI chart, and attaches the packaged chart to the GitHub Release.
