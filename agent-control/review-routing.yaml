@@ -118,6 +118,19 @@ surface_routes:
       - branch protection and merge-gate compatibility
       - local and CI command parity
 
+  workflow_agent_policy:
+    globs:
+      - "AGENTS.md"
+      - "agent-control/**"
+    add_passes:
+      - workflow_agent_policy
+    focus:
+      - policy consistency
+      - progressive disclosure
+      - source-review mapping
+      - handoff and checkpoint contracts
+      - merge-gate implications
+
   contracts_data:
     globs:
       - "api/**"
