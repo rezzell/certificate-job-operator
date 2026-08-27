@@ -79,6 +79,7 @@ jobs:
           repository: ${{ inputs.source_repository }}
           ref: ${{ inputs.source_ref }}
           fetch-depth: 0
+          persist-credentials: false
           path: operator-registry
 
       - name: Prepare cache directories
