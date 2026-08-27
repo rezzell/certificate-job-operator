@@ -30,6 +30,11 @@ on:
         required: false
         default: false
         type: boolean
+      catalog_trivy_risk_accepted:
+        description: 'Proceed when the catalog image Trivy scan reports CRITICAL/HIGH findings'
+        required: false
+        default: false
+        type: boolean
 
 permissions: {}
 
@@ -114,7 +119,7 @@ jobs:
           while IFS= read -r file; do
             [[ -z "$file" ]] && continue
             case "$file" in
-              bundle/*|catalog/*|config/olm/*|config/manifests/*|config/manager/*|config/rbac/*|config/webhook/*|config/default/*|config/crd/*|config/certmanager/*|PROJECT|Makefile)
+              bundle/*|catalog/*|catalog.Dockerfile|config/olm/*|config/manifests/*|config/manager/*|config/rbac/*|config/webhook/*|config/default/*|config/crd/*|config/certmanager/*|PROJECT|Makefile)
                 SHOULD_RELEASE=true
                 break
                 ;;
@@ -221,6 +226,7 @@ jobs:
 
       - name: Scan catalog image with Trivy
         if: steps.changes.outputs.should_release == 'true'
+        continue-on-error: ${{ github.event.inputs.catalog_trivy_risk_accepted == 'true' }}
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ steps.meta.outputs.catalog_image }}
@@ -229,6 +235,11 @@ jobs:
           ignore-unfixed: true
           vuln-type: os,library
           severity: CRITICAL,HIGH
+
+      - name: Catalog Trivy risk accepted
+        if: steps.changes.outputs.should_release == 'true' && github.event.inputs.catalog_trivy_risk_accepted == 'true'
+        run: |
+          echo "::warning::Catalog image Trivy CRITICAL/HIGH findings were explicitly accepted for this release run."
 
       - name: Login to GHCR
         if: steps.changes.outputs.should_release == 'true' && (github.event_name == 'push' || inputs.push_artifacts)
@@ -268,6 +279,7 @@ jobs:
           BUNDLE_IMAGE: ${{ steps.meta.outputs.bundle_image }}
           CATALOG_IMAGE: ${{ steps.meta.outputs.catalog_image }}
           OLM_ARCHIVE: ${{ steps.assets.outputs.olm_archive }}
+          CATALOG_TRIVY_RISK_ACCEPTED: ${{ github.event.inputs.catalog_trivy_risk_accepted }}
         run: |
           set -euo pipefail
           cat > release-notes.md <<EOF
@@ -290,6 +302,15 @@ jobs:
             --certificate-oidc-issuer "https://token.actions.githubusercontent.com"
           \`\`\`
           EOF
+
+          if [[ "${CATALOG_TRIVY_RISK_ACCEPTED}" == "true" ]]; then
+            cat >> release-notes.md <<EOF
+
+          ## Risk acceptance
+
+          Catalog image Trivy CRITICAL/HIGH findings were explicitly accepted for this release run.
+          EOF
+          fi
 
           if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
             gh release edit "${RELEASE_TAG}" \
