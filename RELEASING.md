@@ -4,6 +4,7 @@ This repository supports independent release pipelines for:
 - Operator image
 - OLM bundle/catalog
 - Helm chart
+- Custom OPM base image for OLM catalog builds
 
 You can release any component without releasing the others.
 
@@ -14,6 +15,9 @@ Tag prefixes map directly to a component release workflow:
 - `operator-vX.Y.Z` -> `.github/workflows/release-operator.yml`
 - `olm-vX.Y.Z` -> `.github/workflows/release-olm.yml`
 - `helm-vX.Y.Z` -> `.github/workflows/release-helm.yml`
+
+Custom OPM base image releases are manual-only because the selected upstream
+source commit is an explicit workflow input.
 
 Examples:
 
@@ -49,6 +53,12 @@ Component-specific inputs:
 - Helm release:
   - `chart_dir` (default: `charts/certificate-job-operator`)
   - `oci_repository` (default: `ghcr.io/<owner>/charts`)
+
+- Custom OPM base release:
+  - `source_repository` (default: `operator-framework/operator-registry`)
+  - `source_ref` (required upstream commit SHA, branch, tag, or pull ref)
+  - `image_repository` (default: `<owner>/certificate-job-operator-opm-base`)
+  - `image_tag` (default: `custom-<source short SHA>`)
 
 ## Path Guards
 
@@ -123,6 +133,39 @@ Use when Helm templates/values/docs changed for non-OLM users.
 git tag helm-vX.Y.Z
 git push origin helm-vX.Y.Z
 ```
+
+### 4) Custom OPM base for OLM catalog
+
+Use when upstream `quay.io/operator-framework/opm` has not released a fix that
+is already available on a specific upstream commit or fork commit.
+
+First run a dry run. This builds the linux/amd64 custom base and runs the Trivy
+CRITICAL/HIGH gate without publishing:
+
+```bash
+gh workflow run .github/workflows/release-opm-base.yml \
+  -f source_ref=<operator-registry-commit-sha> \
+  -f push_artifacts=false
+```
+
+If the scan passes, publish and sign the base image:
+
+```bash
+gh workflow run .github/workflows/release-opm-base.yml \
+  -f source_ref=<operator-registry-commit-sha> \
+  -f push_artifacts=true
+```
+
+The workflow summary includes the immutable image reference. Update
+`catalog.Dockerfile` to use that digest before releasing OLM:
+
+```Dockerfile
+FROM ghcr.io/<owner>/certificate-job-operator-opm-base:custom-<short-sha>@sha256:<digest>
+```
+
+This custom base path is a temporary bridge. Prefer the upstream
+`quay.io/operator-framework/opm` release once it contains the needed fix and
+passes the catalog Trivy gate.
 
 ## GitHub Releases
 

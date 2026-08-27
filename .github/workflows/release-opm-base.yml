@@ -1,0 +1,198 @@
+name: Release Custom OPM Base
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_repository:
+        description: 'Source repository containing opm (owner/name)'
+        required: false
+        default: 'operator-framework/operator-registry'
+        type: string
+      source_ref:
+        description: 'Source commit SHA, branch, tag, or pull ref to build'
+        required: true
+        type: string
+      image_repository:
+        description: 'Image repository path (owner/name)'
+        required: false
+        default: ''
+        type: string
+      image_tag:
+        description: 'Image tag; defaults to custom-<source short SHA>'
+        required: false
+        default: ''
+        type: string
+      push_artifacts:
+        description: 'Push/sign image'
+        required: false
+        default: false
+        type: boolean
+
+permissions: {}
+
+jobs:
+  runner-config:
+    name: Runner Config
+    runs-on: ubuntu-latest
+    outputs:
+      scale-set-name: ${{ steps.config.outputs.scale-set-name }}
+    steps:
+      - name: Resolve runner set name
+        id: config
+        env:
+          RUNNER_SCALE_SET_NAME: ${{ vars.RUNNER_SCALE_SET_NAME }}
+          FALLBACK_RUNNER: ubuntu-latest
+        run: |
+          set -euo pipefail
+          echo "scale-set-name=${RUNNER_SCALE_SET_NAME:-${FALLBACK_RUNNER}}" >> "${GITHUB_OUTPUT}"
+
+  choose-runner:
+    needs: runner-config
+    uses: rezzell/.github/.github/workflows/choose-runner.yml@2729a0352a20ce3ae3a1ecf8116f2da31029d8ea
+    permissions:
+      contents: read
+    with:
+      organization: rezzell
+      scale-set-name: ${{ needs.runner-config.outputs.scale-set-name }}
+      fallback-runner: ubuntu-latest
+    secrets:
+      org-runners-read-token: ${{ secrets.ORG_RUNNERS_READ_TOKEN }}
+
+  release:
+    needs: choose-runner
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    runs-on: ${{ fromJson(needs.choose-runner.outputs.runner) }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      HOME: /tmp/certjob-home
+      XDG_CACHE_HOME: /tmp/certjob-cache
+    steps:
+      - name: Checkout opm source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: ${{ inputs.source_repository }}
+          ref: ${{ inputs.source_ref }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: operator-registry
+
+      - name: Prepare cache directories
+        run: mkdir -p /tmp/certjob-home /tmp/certjob-cache
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Resolve release metadata
+        id: meta
+        env:
+          INPUT_IMAGE_REPOSITORY: ${{ inputs.image_repository }}
+          INPUT_IMAGE_TAG: ${{ inputs.image_tag }}
+          INPUT_SOURCE_REPOSITORY: ${{ inputs.source_repository }}
+          INPUT_SOURCE_REF: ${{ inputs.source_ref }}
+        run: |
+          set -euo pipefail
+          SOURCE_SHA="$(git -C operator-registry rev-parse HEAD)"
+          SOURCE_SHORT_SHA="$(git -C operator-registry rev-parse --short=12 HEAD)"
+          IMAGE_REPOSITORY="${INPUT_IMAGE_REPOSITORY:-${GITHUB_REPOSITORY_OWNER}/certificate-job-operator-opm-base}"
+          IMAGE_TAG="${INPUT_IMAGE_TAG:-custom-${SOURCE_SHORT_SHA}}"
+          IMAGE="ghcr.io/${IMAGE_REPOSITORY}:${IMAGE_TAG}"
+
+          {
+            echo "source_repository=${INPUT_SOURCE_REPOSITORY}"
+            echo "source_ref=${INPUT_SOURCE_REF}"
+            echo "source_sha=${SOURCE_SHA}"
+            echo "source_short_sha=${SOURCE_SHORT_SHA}"
+            echo "image_repository=${IMAGE_REPOSITORY}"
+            echo "image_tag=${IMAGE_TAG}"
+            echo "image=${IMAGE}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build custom opm base image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: operator-registry
+          file: operator-registry/upstream-builder.Dockerfile
+          load: true
+          push: false
+          tags: ${{ steps.meta.outputs.image }}
+          platforms: linux/amd64
+
+      - name: Scan custom opm base image with Trivy
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ steps.meta.outputs.image }}
+          format: table
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+
+      - name: Login to GHCR
+        if: github.event.inputs.push_artifacts == 'true'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push custom opm base image
+        if: github.event.inputs.push_artifacts == 'true'
+        id: push
+        env:
+          IMAGE: ${{ steps.meta.outputs.image }}
+        run: |
+          set -euo pipefail
+          docker push "${IMAGE}"
+
+          REPO_DIGEST="$(docker image inspect --format='{{range .RepoDigests}}{{println .}}{{end}}' "${IMAGE}" | head -n1 || true)"
+          DIGEST="${REPO_DIGEST#*@}"
+          if [[ -z "${DIGEST}" || "${DIGEST}" == "${REPO_DIGEST}" ]]; then
+            DIGEST="$(docker buildx imagetools inspect "${IMAGE}" --format '{{.Digest}}')"
+          fi
+
+          echo "digest=${DIGEST}" >> "${GITHUB_OUTPUT}"
+
+      - name: Attest image provenance
+        if: github.event.inputs.push_artifacts == 'true'
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-name: ghcr.io/${{ steps.meta.outputs.image_repository }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+      - name: Install cosign
+        if: github.event.inputs.push_artifacts == 'true'
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
+
+      - name: Sign image (keyless)
+        if: github.event.inputs.push_artifacts == 'true'
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          cosign sign --yes "${{ steps.meta.outputs.image }}@${{ steps.push.outputs.digest }}"
+
+      - name: Publish summary
+        env:
+          PUSH_ARTIFACTS: ${{ github.event.inputs.push_artifacts }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## Custom OPM base"
+            echo
+            echo "- Source repository: \`${{ steps.meta.outputs.source_repository }}\`"
+            echo "- Source ref: \`${{ steps.meta.outputs.source_ref }}\`"
+            echo "- Source commit: \`${{ steps.meta.outputs.source_sha }}\`"
+            echo "- Image: \`${{ steps.meta.outputs.image }}\`"
+            if [[ "${PUSH_ARTIFACTS}" == "true" ]]; then
+              echo "- Digest: \`${{ steps.push.outputs.digest }}\`"
+              echo "- Catalog Dockerfile base: \`${{ steps.meta.outputs.image }}@${{ steps.push.outputs.digest }}\`"
+            else
+              echo "- Push/sign skipped because \`push_artifacts=false\`."
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"
